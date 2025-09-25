@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -30,49 +30,55 @@ import { useFinance } from "@/providers/FinanceProvider";
 import { useChallenges } from "@/providers/ChallengesProvider";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/providers/AuthProvider";
+import { z } from "zod";
+import { generateObject } from "@rork/toolkit-sdk";
 import { useRouter } from "expo-router";
 
 interface Lesson {
   id: string;
   title: string;
   description: string;
-  duration: string;
+  durationMinutes: number;
   difficulty: "Beginner" | "Intermediate" | "Advanced";
   category: string;
   completed: boolean;
   points: number;
+  content: string;
 }
 
-const LESSONS: Lesson[] = [
+const FALLBACK_LESSONS: Lesson[] = [
   {
-    id: "1",
+    id: "l1",
     title: "Smart Grocery Shopping",
-    description: "Learn how to reduce food expenses without compromising quality",
-    duration: "5 min",
+    description: "Reduce food expenses without losing quality",
+    durationMinutes: 5,
     difficulty: "Beginner",
     category: "Food & Dining",
     completed: false,
     points: 50,
+    content: "Plan meals, use a list, compare unit prices, and buy store brands.",
   },
   {
-    id: "2",
-    title: "Building an Emergency Fund",
-    description: "Step-by-step guide to creating financial security",
-    duration: "8 min",
+    id: "l2",
+    title: "Emergency Fund 101",
+    description: "Create a 3–6 month safety net",
+    durationMinutes: 8,
     difficulty: "Intermediate",
     category: "Savings",
-    completed: true,
-    points: 100,
+    completed: false,
+    points: 80,
+    content: "Automate a weekly transfer. Park funds in a high-yield savings account.",
   },
   {
-    id: "3",
+    id: "l3",
     title: "Investment Basics",
-    description: "Understanding stocks, bonds, and diversification",
-    duration: "12 min",
+    description: "Stocks, bonds, and diversification",
+    durationMinutes: 12,
     difficulty: "Advanced",
     category: "Investing",
     completed: false,
-    points: 150,
+    points: 120,
+    content: "Start with low-cost index funds, rebalance yearly, and avoid timing the market.",
   },
 ];
 
@@ -293,6 +299,9 @@ export default function LearningScreen() {
   const [selectedTab, setSelectedTab] = useState<"lessons" | "challenges" | "ai">("lessons");
   const { userPoints, monthlyExpenses, getExpensesByCategory } = useFinance();
   const [aiInsight, setAiInsight] = useState<string>("");
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [expandedLessonId, setExpandedLessonId] = useState<string | null>(null);
+  const [isGeneratingLessons, setIsGeneratingLessons] = useState(false);
   const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
@@ -338,44 +347,135 @@ export default function LearningScreen() {
     }
   };
 
+  const generateLessonsFromAI = useCallback(async () => {
+    try {
+      setIsGeneratingLessons(true);
+      const byCategory = getExpensesByCategory();
+      const top = Object.entries(byCategory).sort((a, b) => b[1] - a[1])[0];
+
+      const schema = z.object({
+        lessons: z.array(z.object({
+          id: z.string(),
+          title: z.string(),
+          description: z.string(),
+          content: z.string(),
+          durationMinutes: z.number().min(3).max(20),
+          difficulty: z.enum(["Beginner", "Intermediate", "Advanced"]),
+          category: z.string(),
+          points: z.number().min(20).max(200),
+        })).min(3).max(6),
+      });
+
+      const result = await generateObject({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Create short financial lessons tailored to my spending." },
+              { type: "text", text: JSON.stringify({ monthlyExpenses, topCategory: top?.[0] ?? "unknown", topAmount: top?.[1] ?? 0, byCategory }) },
+              { type: "text", text: "Return JSON only. Keep lessons concise and actionable." },
+            ],
+          },
+        ],
+        schema,
+      });
+
+      const created = (result as { lessons: Lesson["id"] extends never ? never : Lesson[] }).lessons.map((l) => ({
+        ...l,
+        completed: false,
+      }));
+      setLessons(created);
+      console.log("[Learning] AI lessons generated", created.length);
+    } catch (e) {
+      console.error("[Learning] generateLessonsFromAI error", e);
+      setLessons(FALLBACK_LESSONS);
+    } finally {
+      setIsGeneratingLessons(false);
+    }
+  }, [getExpensesByCategory, monthlyExpenses]);
+
+  useEffect(() => {
+    if (lessons.length === 0) {
+      void generateLessonsFromAI();
+    }
+  }, [lessons.length, generateLessonsFromAI]);
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedLessonId((prev) => (prev === id ? null : id));
+  }, []);
+
+  const markLessonCompleted = useCallback((id: string) => {
+    setLessons((prev) => prev.map((l) => (l.id === id ? { ...l, completed: true } : l)));
+  }, []);
+
   const renderLessons = () => (
     <View style={styles.tabContent}>
-      {LESSONS.map((lesson) => (
-        <TouchableOpacity key={lesson.id} style={styles.lessonCard}>
-          <View style={styles.lessonHeader}>
-            <View style={styles.lessonIcon}>
-              <BookOpen color={Colors.primary} size={20} />
-            </View>
-            <View style={styles.lessonBadge}>
-              <Text style={styles.lessonBadgeText}>{lesson.difficulty}</Text>
-            </View>
-          </View>
-
-          <Text style={styles.lessonTitle}>{lesson.title}</Text>
-          <Text style={styles.lessonDescription}>{lesson.description}</Text>
-
-          <View style={styles.lessonFooter}>
-            <View style={styles.lessonMeta}>
-              <Clock color={Colors.gray500} size={14} />
-              <Text style={styles.lessonMetaText}>{lesson.duration}</Text>
-              <Award color="#F59E0B" size={14} />
-              <Text style={styles.lessonMetaText}>{lesson.points} pts</Text>
-            </View>
-
-            {lesson.completed ? (
-              <View style={styles.completedBadge}>
-                <CheckCircle color="#10B981" size={16} />
-                <Text style={styles.completedText}>Completed</Text>
-              </View>
-            ) : (
-              <TouchableOpacity style={styles.startButton}>
-                <Play color={Colors.white} size={14} />
-                <Text style={styles.startButtonText}>Start</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+      <View style={styles.lessonsHeaderRow}>
+        <Text style={styles.lessonsHeaderTitle}>Personalized Lessons</Text>
+        <TouchableOpacity
+          testID="regen-lessons"
+          style={[styles.generateButton, isGeneratingLessons && { opacity: 0.7 }]}
+          disabled={isGeneratingLessons}
+          onPress={generateLessonsFromAI}
+        >
+          <Lightbulb color="#8B5CF6" size={20} />
+          <Text style={styles.generateButtonText}>{isGeneratingLessons ? "Refreshing..." : "Regenerate"}</Text>
         </TouchableOpacity>
-      ))}
+      </View>
+
+      {lessons.map((lesson) => {
+        const isExpanded = expandedLessonId === lesson.id;
+        return (
+          <TouchableOpacity
+            key={lesson.id}
+            style={styles.lessonCard}
+            activeOpacity={0.9}
+            onPress={() => toggleExpand(lesson.id)}
+            testID={`lesson-${lesson.id}`}
+          >
+            <View style={styles.lessonHeader}>
+              <View style={styles.lessonIcon}>
+                <BookOpen color={Colors.primary} size={20} />
+              </View>
+              <View style={styles.lessonBadge}>
+                <Text style={styles.lessonBadgeText}>{lesson.difficulty}</Text>
+              </View>
+            </View>
+
+            <Text style={styles.lessonTitle}>{lesson.title}</Text>
+            <Text style={styles.lessonDescription}>{lesson.description}</Text>
+
+            {isExpanded ? (
+              <Text style={styles.lessonContent}>{lesson.content}</Text>
+            ) : null}
+
+            <View style={styles.lessonFooter}>
+              <View style={styles.lessonMeta}>
+                <Clock color={Colors.gray500} size={14} />
+                <Text style={styles.lessonMetaText}>{lesson.durationMinutes} min</Text>
+                <Award color="#F59E0B" size={14} />
+                <Text style={styles.lessonMetaText}>{lesson.points} pts</Text>
+              </View>
+
+              {lesson.completed ? (
+                <View style={styles.completedBadge}>
+                  <CheckCircle color="#10B981" size={16} />
+                  <Text style={styles.completedText}>Completed</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.startButton}
+                  onPress={() => markLessonCompleted(lesson.id)}
+                  testID={`start-${lesson.id}`}
+                >
+                  <Play color={Colors.white} size={14} />
+                  <Text style={styles.startButtonText}>{isExpanded ? "Complete" : "Start"}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 
@@ -605,7 +705,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.gray500,
     lineHeight: 20,
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  lessonContent: {
+    fontSize: 14,
+    color: Colors.ink,
+    lineHeight: 20,
+    backgroundColor: Colors.gray100,
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 12,
   },
   lessonFooter: {
     flexDirection: "row",
@@ -899,6 +1008,17 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderRadius: 16,
     overflow: "hidden",
+  },
+  lessonsHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  lessonsHeaderTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: Colors.ink,
   },
   aiGradient: {
     padding: 24,
