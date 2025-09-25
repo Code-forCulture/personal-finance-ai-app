@@ -186,7 +186,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         photoURL: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face",
         provider: 'google',
         createdAt: new Date(),
-        isPremium: false,
+        isPremium: true,
       };
 
       const userJson = JSON.stringify(mockGoogleUser);
