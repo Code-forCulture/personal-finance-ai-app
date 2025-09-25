@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AuthProvider } from "@/providers/AuthProvider";
 import { FinanceProvider } from "@/providers/FinanceProvider";
 import { trpc, trpcClient } from "@/lib/trpc";
+import { ChallengesProvider } from "@/providers/ChallengesProvider";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -109,7 +110,9 @@ export default function RootLayout() {
           <trpc.Provider client={trpcClient} queryClient={queryClient}>
             <AuthProvider>
               <FinanceProvider>
-                <RootLayoutNav />
+                <ChallengesProvider>
+                  <RootLayoutNav />
+                </ChallengesProvider>
               </FinanceProvider>
             </AuthProvider>
           </trpc.Provider>

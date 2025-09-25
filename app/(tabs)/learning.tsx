@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -21,6 +22,7 @@ import {
   Play
 } from "lucide-react-native";
 import { useFinance } from "@/providers/FinanceProvider";
+import { useChallenges } from "@/providers/ChallengesProvider";
 import { Colors } from "@/constants/colors";
 
 interface Lesson {
@@ -34,16 +36,6 @@ interface Lesson {
   points: number;
 }
 
-interface Challenge {
-  id: string;
-  title: string;
-  description: string;
-  duration: string;
-  reward: number;
-  progress: number;
-  target: number;
-  active: boolean;
-}
 
 const LESSONS: Lesson[] = [
   {
@@ -78,32 +70,11 @@ const LESSONS: Lesson[] = [
   },
 ];
 
-const CHALLENGES: Challenge[] = [
-  {
-    id: "1",
-    title: "Coffee Challenge",
-    description: "Make coffee at home instead of buying for 7 days",
-    duration: "7 days",
-    reward: 100,
-    progress: 3,
-    target: 7,
-    active: true,
-  },
-  {
-    id: "2",
-    title: "No-Spend Weekend",
-    description: "Avoid unnecessary purchases this weekend",
-    duration: "2 days",
-    reward: 75,
-    progress: 0,
-    target: 2,
-    active: false,
-  },
-];
 
 export default function LearningScreen() {
   const [selectedTab, setSelectedTab] = useState<"lessons" | "challenges" | "ai">("lessons");
   const { userPoints, monthlyExpenses, getExpensesByCategory } = useFinance();
+  const { challenges, addChallenge, completeChallenge, updateProgress, suggestChallengesFromAI, loadingSuggest } = useChallenges();
   const [aiInsight, setAiInsight] = useState<string>("");
   const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
 
@@ -184,53 +155,163 @@ export default function LearningScreen() {
     </View>
   );
 
-  const renderChallenges = () => (
-    <View style={styles.tabContent}>
-      {CHALLENGES.map((challenge) => (
-        <View key={challenge.id} style={styles.challengeCard}>
-          <LinearGradient
-            colors={challenge.active ? ["#10B981", "#059669"] : ["#6B7280", "#4B5563"]}
-            style={styles.challengeGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View style={styles.challengeHeader}>
-              <Target color={Colors.white} size={24} />
-              <Text style={styles.challengeReward}>+{challenge.reward} pts</Text>
-            </View>
-            
-            <Text style={styles.challengeTitle}>{challenge.title}</Text>
-            <Text style={styles.challengeDescription}>{challenge.description}</Text>
-            
-            <View style={styles.progressContainer}>
-              <View style={styles.progressBar}>
-                <View 
-                  style={[
-                    styles.progressFill, 
-                    { width: `${(challenge.progress / challenge.target) * 100}%` }
-                  ]} 
-                />
-              </View>
-              <Text style={styles.progressText}>
-                {challenge.progress}/{challenge.target} days
-              </Text>
-            </View>
-            
-            <TouchableOpacity 
-              style={[
-                styles.challengeButton,
-                !challenge.active && styles.challengeButtonInactive
-              ]}
-            >
-              <Text style={styles.challengeButtonText}>
-                {challenge.active ? "Continue" : "Start Challenge"}
-              </Text>
+  const renderChallenges = () => {
+    const [title, setTitle] = useState<string>("");
+    const [targetAmount, setTargetAmount] = useState<string>("");
+    const [category, setCategory] = useState<string>("");
+    const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
+    const [duration, setDuration] = useState<string>("7");
+
+    const onCreate = async () => {
+      const t = title.trim();
+      const amt = Math.max(1, Math.floor(Number(targetAmount)) || 1);
+      const cat = category.trim() || undefined;
+      const dur = Math.max(1, Math.floor(Number(duration)) || 7);
+      if (!t) return;
+      const start = new Date();
+      const end = new Date();
+      end.setDate(end.getDate() + dur);
+      await addChallenge({ title: t, description: undefined, targetAmount: amt, category: cat, period, startDate: start, endDate: end });
+      setTitle("");
+      setTargetAmount("");
+      setCategory("");
+      setDuration("7");
+    };
+
+    return (
+      <View style={styles.tabContent}>
+        <View style={styles.createCard}>
+          <Text style={styles.createTitle}>Create Challenge</Text>
+          <TextInput
+            testID="challenge-title"
+            style={styles.input}
+            placeholder="Title (e.g., No Takeout Week)"
+            placeholderTextColor={Colors.gray500}
+            value={title}
+            onChangeText={setTitle}
+          />
+          <View style={styles.rowGap}>
+            <TextInput
+              testID="challenge-target"
+              style={[styles.input, styles.inputHalf]}
+              placeholder="Target (e.g., 5)"
+              placeholderTextColor={Colors.gray500}
+              keyboardType="numeric"
+              value={targetAmount}
+              onChangeText={setTargetAmount}
+            />
+            <TextInput
+              testID="challenge-category"
+              style={[styles.input, styles.inputHalf]}
+              placeholder="Category (optional)"
+              placeholderTextColor={Colors.gray500}
+              value={category}
+              onChangeText={setCategory}
+            />
+          </View>
+          <View style={styles.rowGap}>
+            {(["daily", "weekly", "monthly"] as const).map((p) => (
+              <TouchableOpacity
+                key={p}
+                testID={`period-${p}`}
+                style={[styles.pill, period === p && styles.pillActive]}
+                onPress={() => setPeriod(p)}
+              >
+                <Text style={[styles.pillText, period === p && styles.pillTextActive]}>{p}</Text>
+              </TouchableOpacity>
+            ))}
+            <TextInput
+              testID="challenge-duration"
+              style={[styles.input, styles.inputHalf]}
+              placeholder="Days"
+              placeholderTextColor={Colors.gray500}
+              keyboardType="numeric"
+              value={duration}
+              onChangeText={setDuration}
+            />
+          </View>
+          <View style={styles.challengeActionsRow}>
+            <TouchableOpacity testID="create-challenge" style={styles.startButton} onPress={onCreate}>
+              <Target color={Colors.white} size={14} />
+              <Text style={styles.startButtonText}>Add</Text>
             </TouchableOpacity>
-          </LinearGradient>
+            <TouchableOpacity
+              testID="ai-suggest"
+              style={[styles.startButton, { backgroundColor: "#8B5CF6" }]}
+              onPress={suggestChallengesFromAI}
+              disabled={loadingSuggest}
+            >
+              <Brain color={Colors.white} size={14} />
+              <Text style={styles.startButtonText}>{loadingSuggest ? "Suggesting..." : "AI Suggest"}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      ))}
-    </View>
-  );
+
+        {challenges.length === 0 && (
+          <View style={styles.insightCard}>
+            <Text style={styles.insightText}>No challenges yet. Create one or let AI suggest.</Text>
+          </View>
+        )}
+
+        {challenges.map((challenge) => {
+          const total = Math.max(1, challenge.targetAmount);
+          const pct = Math.min(100, Math.max(0, (challenge.progress / total) * 100));
+          return (
+            <View key={challenge.id} style={styles.challengeCard}>
+              <LinearGradient
+                colors={challenge.completed ? ["#10B981", "#059669"] : ["#3B82F6", "#2563EB"]}
+                style={styles.challengeGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <View style={styles.challengeHeader}>
+                  <Target color={Colors.white} size={24} />
+                  <Text style={styles.challengeReward}>{challenge.period.toUpperCase()}</Text>
+                </View>
+                <Text style={styles.challengeTitle}>{challenge.title}</Text>
+                {!!challenge.description && (
+                  <Text style={styles.challengeDescription}>{challenge.description}</Text>
+                )}
+                <View style={styles.progressContainer}>
+                  <View style={styles.progressBar}>
+                    <View style={[styles.progressFill, { width: `${pct}%` }]} />
+                  </View>
+                  <Text style={styles.progressText}>
+                    {Math.round(challenge.progress)}/{Math.round(total)}
+                  </Text>
+                </View>
+                <View style={styles.actionsRow}>
+                  {!challenge.completed ? (
+                    <>
+                      <TouchableOpacity
+                        testID={`progress-${challenge.id}`}
+                        style={styles.challengeButton}
+                        onPress={() => updateProgress(challenge.id, Math.min(total, challenge.progress + 1))}
+                      >
+                        <Text style={styles.challengeButtonText}>+1 Progress</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        testID={`complete-${challenge.id}`}
+                        style={[styles.challengeButton, { backgroundColor: "#10B981" }]}
+                        onPress={() => completeChallenge(challenge.id)}
+                      >
+                        <Text style={[styles.challengeButtonText, { color: Colors.white }]}>Mark Done</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <View style={[styles.completedBadge, { backgroundColor: "transparent" }]}>
+                      <CheckCircle color="#10B981" size={16} />
+                      <Text style={[styles.completedText, { color: Colors.white }]}>Completed</Text>
+                    </View>
+                  )}
+                </View>
+              </LinearGradient>
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
 
   const renderAI = () => (
     <View style={styles.tabContent}>
@@ -274,7 +355,6 @@ export default function LearningScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Learning Hub</Text>
         <View style={styles.pointsContainer}>
@@ -283,19 +363,13 @@ export default function LearningScreen() {
         </View>
       </View>
 
-      {/* Tab Navigation */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
           style={[styles.tab, selectedTab === "lessons" && styles.tabActive]}
           onPress={() => setSelectedTab("lessons")}
         >
           <BookOpen color={selectedTab === "lessons" ? Colors.white : Colors.gray500} size={18} />
-          <Text style={[
-            styles.tabText,
-            selectedTab === "lessons" && styles.tabTextActive
-          ]}>
-            Lessons
-          </Text>
+          <Text style={[styles.tabText, selectedTab === "lessons" && styles.tabTextActive]}>Lessons</Text>
         </TouchableOpacity>
         
         <TouchableOpacity
@@ -303,12 +377,7 @@ export default function LearningScreen() {
           onPress={() => setSelectedTab("challenges")}
         >
           <Target color={selectedTab === "challenges" ? Colors.white : Colors.gray500} size={18} />
-          <Text style={[
-            styles.tabText,
-            selectedTab === "challenges" && styles.tabTextActive
-          ]}>
-            Challenges
-          </Text>
+          <Text style={[styles.tabText, selectedTab === "challenges" && styles.tabTextActive]}>Challenges</Text>
         </TouchableOpacity>
         
         <TouchableOpacity
@@ -316,16 +385,10 @@ export default function LearningScreen() {
           onPress={() => setSelectedTab("ai")}
         >
           <Brain color={selectedTab === "ai" ? Colors.white : Colors.gray500} size={18} />
-          <Text style={[
-            styles.tabText,
-            selectedTab === "ai" && styles.tabTextActive
-          ]}>
-            AI Advisor
-          </Text>
+          <Text style={[styles.tabText, selectedTab === "ai" && styles.tabTextActive]}>AI Advisor</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Content */}
       <ScrollView showsVerticalScrollIndicator={false}>
         {selectedTab === "lessons" && renderLessons()}
         {selectedTab === "challenges" && renderChallenges()}
@@ -548,6 +611,67 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "bold",
     color: Colors.ink,
+  },
+  challengeActionsRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 12,
+  },
+  createCard: {
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  createTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: Colors.ink,
+    marginBottom: 10,
+  },
+  input: {
+    backgroundColor: Colors.gray100,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: Colors.ink,
+    borderWidth: 0,
+    marginBottom: 10,
+  },
+  rowGap: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  inputHalf: {
+    flex: 1,
+  },
+  pill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: Colors.gray100,
+    borderRadius: 999,
+  },
+  pillActive: {
+    backgroundColor: Colors.primary,
+  },
+  pillText: {
+    color: Colors.gray500,
+    fontWeight: "600",
+    textTransform: "capitalize",
+  },
+  pillTextActive: {
+    color: Colors.white,
+  },
+  actionsRow: {
+    flexDirection: "row",
+    gap: 8,
   },
   aiCard: {
     marginBottom: 20,
