@@ -6,10 +6,11 @@ export type SupabaseConfig = {
 };
 
 const CONFIG: SupabaseConfig | null = (() => {
-  const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+  const rawUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
   const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
-  if (url && anonKey) {
-    return { url: url.replace(/\/$/, ''), anonKey };
+  if (rawUrl && anonKey) {
+    const url = rawUrl.replace(/\/$/, '');
+    return { url, anonKey };
   }
   return null;
 })();
@@ -20,7 +21,7 @@ let deviceIdMemory: string | null = null;
 async function getDeviceId(): Promise<string> {
   try {
     const key = 'device_id';
-    if (typeof window !== 'undefined' && window?.localStorage) {
+    if (typeof window !== 'undefined' && (window as unknown as { localStorage?: Storage }).localStorage) {
       const existing = window.localStorage.getItem(key);
       if (existing && existing.trim()) return existing;
       const id = `${Platform.OS}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -42,7 +43,7 @@ function headers() {
     apikey: CONFIG.anonKey,
     Authorization: `Bearer ${CONFIG.anonKey}`,
     'Content-Type': 'application/json',
-    Prefer: 'return=representation',
+    Prefer: 'return=representation,resolution=merge-duplicates',
   } as const;
 }
 
@@ -50,7 +51,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (!CONFIG) throw new Error('Supabase is not configured');
   const url = `${CONFIG.url}${path}`;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -58,7 +59,8 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers || {}),
     },
     signal: controller.signal,
-  });
+    mode: Platform.OS === 'web' ? 'cors' : undefined,
+  } as RequestInit);
   clearTimeout(timeoutId);
   const text = await res.text();
   if (!res.ok) {
@@ -79,7 +81,7 @@ export type SupaTransaction = {
   amount: number;
   category: string;
   notes?: string | null;
-  date: string; // ISO
+  date: string;
   user_id: string;
   created_at?: string;
 };
@@ -89,7 +91,7 @@ export type SupaGoal = {
   title: string;
   target_amount: number;
   progress: number;
-  deadline: string; // ISO
+  deadline: string;
   user_id: string;
   created_at?: string;
 };
@@ -97,37 +99,71 @@ export type SupaGoal = {
 export async function fetchTransactionsForCurrentDevice(): Promise<SupaTransaction[]> {
   if (!CONFIG) return [];
   const userId = await getDeviceId();
-  const query = `/rest/v1/transactions?user_id=eq.${encodeURIComponent(userId)}&select=*`;
+  const query = `/rest/v1/transactions?user_id=eq.${encodeURIComponent(userId)}&select=*&order=date.desc.nullslast`;
   return http<SupaTransaction[]>(query, { method: 'GET' });
 }
 
-export async function upsertTransaction(t: Omit<SupaTransaction, 'id' | 'user_id'> & { id?: string }): Promise<SupaTransaction> {
+export async function upsertTransaction(
+  t: Omit<SupaTransaction, 'id' | 'user_id'> & { id?: string }
+): Promise<SupaTransaction> {
   if (!CONFIG) throw new Error('Supabase is not configured');
   const userId = await getDeviceId();
-  const payload = [{ ...t, user_id: userId }];
-  const data = await http<SupaTransaction[]>(`/rest/v1/transactions`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-  return data[0];
+  const record = { ...t, user_id: userId } as const;
+  try {
+    const data = await http<SupaTransaction[]>(`/rest/v1/transactions`, {
+      method: 'POST',
+      body: JSON.stringify([record]),
+    });
+    return data[0];
+  } catch (e: unknown) {
+    const msg = (e as Error).message ?? '';
+    if (msg.includes('409') || msg.toLowerCase().includes('duplicate')) {
+      const id = (t as { id?: string }).id;
+      if (id) {
+        const data = await http<SupaTransaction[]>(`/rest/v1/transactions?id=eq.${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(record),
+        });
+        return data[0];
+      }
+    }
+    throw e as Error;
+  }
 }
 
 export async function fetchGoalsForCurrentDevice(): Promise<SupaGoal[]> {
   if (!CONFIG) return [];
   const userId = await getDeviceId();
-  const query = `/rest/v1/goals?user_id=eq.${encodeURIComponent(userId)}&select=*`;
+  const query = `/rest/v1/goals?user_id=eq.${encodeURIComponent(userId)}&select=*&order=deadline.asc.nullslast`;
   return http<SupaGoal[]>(query, { method: 'GET' });
 }
 
-export async function upsertGoal(g: Omit<SupaGoal, 'id' | 'user_id'> & { id?: string }): Promise<SupaGoal> {
+export async function upsertGoal(
+  g: Omit<SupaGoal, 'id' | 'user_id'> & { id?: string }
+): Promise<SupaGoal> {
   if (!CONFIG) throw new Error('Supabase is not configured');
   const userId = await getDeviceId();
-  const payload = [{ ...g, user_id: userId }];
-  const data = await http<SupaGoal[]>(`/rest/v1/goals`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-  return data[0];
+  const record = { ...g, user_id: userId } as const;
+  try {
+    const data = await http<SupaGoal[]>(`/rest/v1/goals`, {
+      method: 'POST',
+      body: JSON.stringify([record]),
+    });
+    return data[0];
+  } catch (e: unknown) {
+    const msg = (e as Error).message ?? '';
+    if (msg.includes('409') || msg.toLowerCase().includes('duplicate')) {
+      const id = (g as { id?: string }).id;
+      if (id) {
+        const data = await http<SupaGoal[]>(`/rest/v1/goals?id=eq.${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(record),
+        });
+        return data[0];
+      }
+    }
+    throw e as Error;
+  }
 }
 
 export async function ensureSupabaseReady(): Promise<{ configured: boolean; deviceId?: string }> {
