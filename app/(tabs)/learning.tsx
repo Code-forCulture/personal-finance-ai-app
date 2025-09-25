@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -16,14 +16,17 @@ import {
   Target,
   Award,
   Clock,
-  TrendingUp,
   Lightbulb,
   CheckCircle,
-  Play
+  Play,
+  Lock,
+  ShieldCheck
 } from "lucide-react-native";
 import { useFinance } from "@/providers/FinanceProvider";
 import { useChallenges } from "@/providers/ChallengesProvider";
 import { Colors } from "@/constants/colors";
+import { useAuth } from "@/providers/AuthProvider";
+import { useRouter } from "expo-router";
 
 interface Lesson {
   id: string;
@@ -35,7 +38,6 @@ interface Lesson {
   completed: boolean;
   points: number;
 }
-
 
 const LESSONS: Lesson[] = [
   {
@@ -70,31 +72,190 @@ const LESSONS: Lesson[] = [
   },
 ];
 
+function ChallengesTab() {
+  const { challenges, addChallenge, completeChallenge, updateProgress, suggestChallengesFromAI, loadingSuggest } = useChallenges();
+  const [title, setTitle] = useState<string>("");
+  const [targetAmount, setTargetAmount] = useState<string>("");
+  const [category, setCategory] = useState<string>("");
+  const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
+  const [duration, setDuration] = useState<string>("7");
+
+  const onCreate = async () => {
+    const t = title.trim();
+    const amt = Math.max(1, Math.floor(Number(targetAmount)) || 1);
+    const cat = category.trim() || undefined;
+    const dur = Math.max(1, Math.floor(Number(duration)) || 7);
+    if (!t) return;
+    const start = new Date();
+    const end = new Date();
+    end.setDate(end.getDate() + dur);
+    await addChallenge({ title: t, description: undefined, targetAmount: amt, category: cat, period, startDate: start, endDate: end });
+    setTitle("");
+    setTargetAmount("");
+    setCategory("");
+    setDuration("7");
+  };
+
+  return (
+    <View style={styles.tabContent}>
+      <View style={styles.createCard}>
+        <Text style={styles.createTitle}>Create Challenge</Text>
+        <TextInput
+          testID="challenge-title"
+          style={styles.input}
+          placeholder="Title (e.g., No Takeout Week)"
+          placeholderTextColor={Colors.gray500}
+          value={title}
+          onChangeText={setTitle}
+        />
+        <View style={styles.rowGap}>
+          <TextInput
+            testID="challenge-target"
+            style={[styles.input, styles.inputHalf]}
+            placeholder="Target (e.g., 5)"
+            placeholderTextColor={Colors.gray500}
+            keyboardType="numeric"
+            value={targetAmount}
+            onChangeText={setTargetAmount}
+          />
+          <TextInput
+            testID="challenge-category"
+            style={[styles.input, styles.inputHalf]}
+            placeholder="Category (optional)"
+            placeholderTextColor={Colors.gray500}
+            value={category}
+            onChangeText={setCategory}
+          />
+        </View>
+        <View style={styles.rowGap}>
+          {(["daily", "weekly", "monthly"] as const).map((p) => (
+            <TouchableOpacity
+              key={p}
+              testID={`period-${p}`}
+              style={[styles.pill, period === p && styles.pillActive]}
+              onPress={() => setPeriod(p)}
+            >
+              <Text style={[styles.pillText, period === p && styles.pillTextActive]}>{p}</Text>
+            </TouchableOpacity>
+          ))}
+          <TextInput
+            testID="challenge-duration"
+            style={[styles.input, styles.inputHalf]}
+            placeholder="Days"
+            placeholderTextColor={Colors.gray500}
+            keyboardType="numeric"
+            value={duration}
+            onChangeText={setDuration}
+          />
+        </View>
+        <View style={styles.challengeActionsRow}>
+          <TouchableOpacity testID="create-challenge" style={styles.startButton} onPress={onCreate}>
+            <Target color={Colors.white} size={14} />
+            <Text style={styles.startButtonText}>Add</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="ai-suggest"
+            style={[styles.startButton, { backgroundColor: "#8B5CF6" }]}
+            onPress={suggestChallengesFromAI}
+            disabled={loadingSuggest}
+          >
+            <Brain color={Colors.white} size={14} />
+            <Text style={styles.startButtonText}>{loadingSuggest ? "Suggesting..." : "AI Suggest"}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {challenges.length === 0 && (
+        <View style={styles.insightCard}>
+          <Text style={styles.insightText}>No challenges yet. Create one or let AI suggest.</Text>
+        </View>
+      )}
+
+      {challenges.map((challenge) => {
+        const total = Math.max(1, challenge.targetAmount);
+        const pct = Math.min(100, Math.max(0, (challenge.progress / total) * 100));
+        return (
+          <View key={challenge.id} style={styles.challengeCard}>
+            <LinearGradient
+              colors={challenge.completed ? ["#10B981", "#059669"] : ["#3B82F6", "#2563EB"]}
+              style={styles.challengeGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.challengeHeader}>
+                <Target color={Colors.white} size={24} />
+                <Text style={styles.challengeReward}>{challenge.period.toUpperCase()}</Text>
+              </View>
+              <Text style={styles.challengeTitle}>{challenge.title}</Text>
+              {!!challenge.description && (
+                <Text style={styles.challengeDescription}>{challenge.description}</Text>
+              )}
+              <View style={styles.progressContainer}>
+                <View style={styles.progressBar}>
+                  <View style={[styles.progressFill, { width: `${pct}%` }]} />
+                </View>
+                <Text style={styles.progressText}>
+                  {Math.round(challenge.progress)}/{Math.round(total)}
+                </Text>
+              </View>
+              <View style={styles.actionsRow}>
+                {!challenge.completed ? (
+                  <>
+                    <TouchableOpacity
+                      testID={`progress-${challenge.id}`}
+                      style={styles.challengeButton}
+                      onPress={() => updateProgress(challenge.id, Math.min(total, challenge.progress + 1))}
+                    >
+                      <Text style={styles.challengeButtonText}>+1 Progress</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      testID={`complete-${challenge.id}`}
+                      style={[styles.challengeButton, { backgroundColor: "#10B981" }]}
+                      onPress={() => completeChallenge(challenge.id)}
+                    >
+                      <Text style={[styles.challengeButtonText, { color: Colors.white }]}>Mark Done</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <View style={[styles.completedBadge, { backgroundColor: "transparent" }]}>
+                    <CheckCircle color="#10B981" size={16} />
+                    <Text style={[styles.completedText, { color: Colors.white }]}>Completed</Text>
+                  </View>
+                )}
+              </View>
+            </LinearGradient>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 
 export default function LearningScreen() {
   const [selectedTab, setSelectedTab] = useState<"lessons" | "challenges" | "ai">("lessons");
   const { userPoints, monthlyExpenses, getExpensesByCategory } = useFinance();
-  const { challenges, addChallenge, completeChallenge, updateProgress, suggestChallengesFromAI, loadingSuggest } = useChallenges();
   const [aiInsight, setAiInsight] = useState<string>("");
   const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
+  const { user } = useAuth();
+  const router = useRouter();
 
   const generateAIInsight = async () => {
     setIsGeneratingInsight(true);
-    
     try {
       const expensesByCategory = getExpensesByCategory();
       const topCategory = Object.entries(expensesByCategory)
-        .sort(([,a], [,b]) => b - a)[0];
-      
+        .sort(([, a], [, b]) => b - a)[0];
+
       const messages = [
         {
           role: "system" as const,
-          content: "You are a personal finance advisor. Provide a brief, actionable tip based on the user's spending data. Keep it under 100 words and focus on practical advice."
+          content:
+            "You are a personal finance advisor. Provide a brief, actionable tip based on the user's spending data. Keep it under 100 words and focus on practical advice.",
         },
         {
           role: "user" as const,
-          content: `My monthly expenses are $${monthlyExpenses}. My highest spending category is ${topCategory?.[0] || "unknown"} at $${topCategory?.[1] || 0}. Give me a personalized money-saving tip.`
-        }
+          content: `My monthly expenses are $${monthlyExpenses}. My highest spending category is ${topCategory?.[0] || "unknown"} at $${topCategory?.[1] || 0}. Give me a personalized money-saving tip.`,
+        },
       ];
 
       const response = await fetch("https://toolkit.rork.com/text/llm/", {
@@ -106,8 +267,8 @@ export default function LearningScreen() {
       });
 
       const data = await response.json();
-      setAiInsight(data.completion);
-    } catch (error) {
+      setAiInsight((data as { completion?: string }).completion ?? "");
+    } catch {
       Alert.alert("Error", "Failed to generate AI insight. Please try again.");
     } finally {
       setIsGeneratingInsight(false);
@@ -126,10 +287,10 @@ export default function LearningScreen() {
               <Text style={styles.lessonBadgeText}>{lesson.difficulty}</Text>
             </View>
           </View>
-          
+
           <Text style={styles.lessonTitle}>{lesson.title}</Text>
           <Text style={styles.lessonDescription}>{lesson.description}</Text>
-          
+
           <View style={styles.lessonFooter}>
             <View style={styles.lessonMeta}>
               <Clock color={Colors.gray500} size={14} />
@@ -137,7 +298,7 @@ export default function LearningScreen() {
               <Award color="#F59E0B" size={14} />
               <Text style={styles.lessonMetaText}>{lesson.points} pts</Text>
             </View>
-            
+
             {lesson.completed ? (
               <View style={styles.completedBadge}>
                 <CheckCircle color="#10B981" size={16} />
@@ -155,164 +316,6 @@ export default function LearningScreen() {
     </View>
   );
 
-  const renderChallenges = () => {
-    const [title, setTitle] = useState<string>("");
-    const [targetAmount, setTargetAmount] = useState<string>("");
-    const [category, setCategory] = useState<string>("");
-    const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
-    const [duration, setDuration] = useState<string>("7");
-
-    const onCreate = async () => {
-      const t = title.trim();
-      const amt = Math.max(1, Math.floor(Number(targetAmount)) || 1);
-      const cat = category.trim() || undefined;
-      const dur = Math.max(1, Math.floor(Number(duration)) || 7);
-      if (!t) return;
-      const start = new Date();
-      const end = new Date();
-      end.setDate(end.getDate() + dur);
-      await addChallenge({ title: t, description: undefined, targetAmount: amt, category: cat, period, startDate: start, endDate: end });
-      setTitle("");
-      setTargetAmount("");
-      setCategory("");
-      setDuration("7");
-    };
-
-    return (
-      <View style={styles.tabContent}>
-        <View style={styles.createCard}>
-          <Text style={styles.createTitle}>Create Challenge</Text>
-          <TextInput
-            testID="challenge-title"
-            style={styles.input}
-            placeholder="Title (e.g., No Takeout Week)"
-            placeholderTextColor={Colors.gray500}
-            value={title}
-            onChangeText={setTitle}
-          />
-          <View style={styles.rowGap}>
-            <TextInput
-              testID="challenge-target"
-              style={[styles.input, styles.inputHalf]}
-              placeholder="Target (e.g., 5)"
-              placeholderTextColor={Colors.gray500}
-              keyboardType="numeric"
-              value={targetAmount}
-              onChangeText={setTargetAmount}
-            />
-            <TextInput
-              testID="challenge-category"
-              style={[styles.input, styles.inputHalf]}
-              placeholder="Category (optional)"
-              placeholderTextColor={Colors.gray500}
-              value={category}
-              onChangeText={setCategory}
-            />
-          </View>
-          <View style={styles.rowGap}>
-            {(["daily", "weekly", "monthly"] as const).map((p) => (
-              <TouchableOpacity
-                key={p}
-                testID={`period-${p}`}
-                style={[styles.pill, period === p && styles.pillActive]}
-                onPress={() => setPeriod(p)}
-              >
-                <Text style={[styles.pillText, period === p && styles.pillTextActive]}>{p}</Text>
-              </TouchableOpacity>
-            ))}
-            <TextInput
-              testID="challenge-duration"
-              style={[styles.input, styles.inputHalf]}
-              placeholder="Days"
-              placeholderTextColor={Colors.gray500}
-              keyboardType="numeric"
-              value={duration}
-              onChangeText={setDuration}
-            />
-          </View>
-          <View style={styles.challengeActionsRow}>
-            <TouchableOpacity testID="create-challenge" style={styles.startButton} onPress={onCreate}>
-              <Target color={Colors.white} size={14} />
-              <Text style={styles.startButtonText}>Add</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              testID="ai-suggest"
-              style={[styles.startButton, { backgroundColor: "#8B5CF6" }]}
-              onPress={suggestChallengesFromAI}
-              disabled={loadingSuggest}
-            >
-              <Brain color={Colors.white} size={14} />
-              <Text style={styles.startButtonText}>{loadingSuggest ? "Suggesting..." : "AI Suggest"}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {challenges.length === 0 && (
-          <View style={styles.insightCard}>
-            <Text style={styles.insightText}>No challenges yet. Create one or let AI suggest.</Text>
-          </View>
-        )}
-
-        {challenges.map((challenge) => {
-          const total = Math.max(1, challenge.targetAmount);
-          const pct = Math.min(100, Math.max(0, (challenge.progress / total) * 100));
-          return (
-            <View key={challenge.id} style={styles.challengeCard}>
-              <LinearGradient
-                colors={challenge.completed ? ["#10B981", "#059669"] : ["#3B82F6", "#2563EB"]}
-                style={styles.challengeGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <View style={styles.challengeHeader}>
-                  <Target color={Colors.white} size={24} />
-                  <Text style={styles.challengeReward}>{challenge.period.toUpperCase()}</Text>
-                </View>
-                <Text style={styles.challengeTitle}>{challenge.title}</Text>
-                {!!challenge.description && (
-                  <Text style={styles.challengeDescription}>{challenge.description}</Text>
-                )}
-                <View style={styles.progressContainer}>
-                  <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${pct}%` }]} />
-                  </View>
-                  <Text style={styles.progressText}>
-                    {Math.round(challenge.progress)}/{Math.round(total)}
-                  </Text>
-                </View>
-                <View style={styles.actionsRow}>
-                  {!challenge.completed ? (
-                    <>
-                      <TouchableOpacity
-                        testID={`progress-${challenge.id}`}
-                        style={styles.challengeButton}
-                        onPress={() => updateProgress(challenge.id, Math.min(total, challenge.progress + 1))}
-                      >
-                        <Text style={styles.challengeButtonText}>+1 Progress</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        testID={`complete-${challenge.id}`}
-                        style={[styles.challengeButton, { backgroundColor: "#10B981" }]}
-                        onPress={() => completeChallenge(challenge.id)}
-                      >
-                        <Text style={[styles.challengeButtonText, { color: Colors.white }]}>Mark Done</Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <View style={[styles.completedBadge, { backgroundColor: "transparent" }]}>
-                      <CheckCircle color="#10B981" size={16} />
-                      <Text style={[styles.completedText, { color: Colors.white }]}>Completed</Text>
-                    </View>
-                  )}
-                </View>
-              </LinearGradient>
-            </View>
-          );
-        })}
-      </View>
-    );
-  };
-
   const renderAI = () => (
     <View style={styles.tabContent}>
       <View style={styles.aiCard}>
@@ -327,8 +330,8 @@ export default function LearningScreen() {
           <Text style={styles.aiSubtitle}>
             Get personalized insights based on your spending patterns
           </Text>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={styles.generateButton}
             onPress={generateAIInsight}
             disabled={isGeneratingInsight}
@@ -340,8 +343,8 @@ export default function LearningScreen() {
           </TouchableOpacity>
         </LinearGradient>
       </View>
-      
-      {aiInsight && (
+
+      {aiInsight ? (
         <View style={styles.insightCard}>
           <View style={styles.insightHeader}>
             <Lightbulb color="#F59E0B" size={20} />
@@ -349,7 +352,31 @@ export default function LearningScreen() {
           </View>
           <Text style={styles.insightText}>{aiInsight}</Text>
         </View>
-      )}
+      ) : null}
+    </View>
+  );
+
+  const renderLockedChallenges = () => (
+    <View style={styles.tabContent}>
+      <View style={styles.lockedHero} testID="locked-premium-learning">
+        <View style={styles.lockBadge}>
+          <Lock color="#FFFFFF" size={18} />
+          <Text style={styles.lockBadgeText}>Premium Only</Text>
+        </View>
+        <Text style={styles.lockTitle}>Challenges require Premium</Text>
+        <Text style={styles.lockSubtitle}>
+          Unlock personalized challenges and AI goals tailored to your spending.
+        </Text>
+        <TouchableOpacity
+          testID="go-premium"
+          onPress={() => router.push("/premium")}
+          style={styles.lockCta}
+          accessibilityRole="button"
+        >
+          <ShieldCheck color="#FFFFFF" size={18} />
+          <Text style={styles.lockCtaText}>Go to Premium</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -368,18 +395,24 @@ export default function LearningScreen() {
           style={[styles.tab, selectedTab === "lessons" && styles.tabActive]}
           onPress={() => setSelectedTab("lessons")}
         >
-          <BookOpen color={selectedTab === "lessons" ? Colors.white : Colors.gray500} size={18} />
+          <BookOpen
+            color={selectedTab === "lessons" ? Colors.white : Colors.gray500}
+            size={18}
+          />
           <Text style={[styles.tabText, selectedTab === "lessons" && styles.tabTextActive]}>Lessons</Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
           style={[styles.tab, selectedTab === "challenges" && styles.tabActive]}
           onPress={() => setSelectedTab("challenges")}
         >
-          <Target color={selectedTab === "challenges" ? Colors.white : Colors.gray500} size={18} />
+          <Target
+            color={selectedTab === "challenges" ? Colors.white : Colors.gray500}
+            size={18}
+          />
           <Text style={[styles.tabText, selectedTab === "challenges" && styles.tabTextActive]}>Challenges</Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
           style={[styles.tab, selectedTab === "ai" && styles.tabActive]}
           onPress={() => setSelectedTab("ai")}
@@ -391,7 +424,7 @@ export default function LearningScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false}>
         {selectedTab === "lessons" && renderLessons()}
-        {selectedTab === "challenges" && renderChallenges()}
+        {selectedTab === "challenges" && (user?.isPremium ? <ChallengesTab /> : renderLockedChallenges())}
         {selectedTab === "ai" && renderAI()}
       </ScrollView>
     </SafeAreaView>
@@ -719,6 +752,53 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+  },
+  lockedHero: {
+    margin: 16,
+    borderRadius: 16,
+    padding: 20,
+    backgroundColor: Colors.primary,
+  },
+  lockBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    marginBottom: 12,
+    gap: 6,
+  },
+  lockBadgeText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  lockTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
+  lockSubtitle: {
+    color: "#E5E7EB",
+    fontSize: 14,
+    marginBottom: 14,
+  },
+  lockCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  lockCtaText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
   },
   insightHeader: {
     flexDirection: "row",
