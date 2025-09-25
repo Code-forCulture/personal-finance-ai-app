@@ -1,13 +1,15 @@
 import React, { useMemo, useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Colors } from "@/constants/colors";
 import { useFinance } from "@/providers/FinanceProvider";
-import { Crown, Sparkles, BarChart3, BrainCircuit, Trophy, Lightbulb, ShieldCheck, Lock } from "lucide-react-native";
+import { Crown, Sparkles, BarChart3, BrainCircuit, Trophy, Lightbulb, ShieldCheck, Lock, Send, MessageSquare } from "lucide-react-native";
 
 import { useAuth } from "@/providers/AuthProvider";
 import Svg, { Path } from "react-native-svg";
-import { generateText } from "@rork/toolkit-sdk";
+import { generateText, generateObject, useRorkAgent, createRorkTool } from "@rork/toolkit-sdk";
+import { z } from "zod";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface Insight {
   id: string;
@@ -74,8 +76,31 @@ export default function PremiumScreen() {
   const [newChallengeDays, setNewChallengeDays] = useState<string>("7");
   const [newChallengeSavings, setNewChallengeSavings] = useState<string>("50");
   const [aiSuggesting, setAiSuggesting] = useState<boolean>(false);
+  const [advisorInput, setAdvisorInput] = useState<string>("");
 
+  const addChallengeFromTool = useCallback((input: { title: string; targetDays?: number; targetSavings?: number }) => {
+    const days = typeof input.targetDays === "number" && input.targetDays > 0 ? input.targetDays : 7;
+    const savings = typeof input.targetSavings === "number" && input.targetSavings >= 0 ? input.targetSavings : 25;
+    const c: UserChallenge = { id: `c-ai-${Date.now()}`, title: input.title.slice(0, 80), targetDays: days, targetSavings: savings, active: true };
+    setChallenges(prev => [c, ...prev]);
+  }, []);
 
+  const advisor = useRorkAgent({
+    tools: {
+      addChallenge: createRorkTool({
+        description: "Create a savings challenge for the user",
+        zodSchema: z.object({
+          title: z.string().describe("Short challenge title"),
+          targetDays: z.number().int().min(1).max(365).optional(),
+          targetSavings: z.number().int().min(0).max(100000).optional(),
+        }),
+        execute: async (input) => {
+          addChallengeFromTool(input);
+          return "challenge-added";
+        },
+      }),
+    },
+  });
 
   const expenseSeries = useMemo(() => {
     const sorted = [...transactions]
@@ -101,44 +126,44 @@ export default function PremiumScreen() {
   const generateAI = useCallback(async () => {
     try {
       setIsGenerating(true);
-      const text = await generateText({
+      const schema = z.object({
+        insights: z.array(z.object({
+          title: z.string(),
+          description: z.string(),
+          severity: z.enum(["info", "warning", "success"]).optional(),
+        })).min(1).max(5),
+        lessons: z.array(z.object({
+          title: z.string(),
+          duration: z.string().optional(),
+          challenge: z.string(),
+        })).min(1).max(5),
+      });
+
+      const result = await generateObject<typeof schema>({
         messages: [
-          { role: "assistant", content: "You are a helpful finance coach." },
-          {
-            role: "user",
-            content: `Analyze my spending and give: 3 insights and 3 mini-lessons with short challenges. Snapshot: ${JSON.stringify({
-              monthlyIncome,
-              monthlyExpenses,
-              last10: transactions.slice(0, 10).map(t => ({ type: t.type, amount: t.amount, category: t.category, date: t.date.toISOString() }))
-            })}`,
-          },
+          { role: "assistant", content: "You are a helpful, concise finance coach. Output must strictly follow the JSON schema." },
+          { role: "user", content: `Given this snapshot, produce 3 insights and 3 mini-lessons with actionable challenges, tailored to the data. Snapshot: ${JSON.stringify({
+            monthlyIncome,
+            monthlyExpenses,
+            last20: transactions.slice(0, 20).map(t => ({ type: t.type, amount: t.amount, category: t.category, date: t.date.toISOString() })),
+          })}` },
         ],
+        schema,
       });
 
-      const lines = text.split(/\n|\r/).map(l => l.trim()).filter(Boolean);
-      const parsedInsights: Insight[] = [];
-      const parsedLessons: LessonSuggestion[] = [];
+      const parsedInsights: Insight[] = (result.insights ?? []).slice(0, 3).map((it, idx) => ({
+        id: `i-${Date.now()}-${idx}`,
+        title: it.title.slice(0, 80),
+        description: it.description.slice(0, 300),
+        severity: it.severity ?? (it.description.toLowerCase().includes("overspend") ? "warning" : "info"),
+      }));
 
-      lines.forEach((raw, idx) => {
-        if (!raw) return;
-        const line = raw.slice(0, 300);
-        const isLesson = /lesson|challenge/i.test(line);
-        if (!isLesson && parsedInsights.length < 3) {
-          parsedInsights.push({
-            id: `i-${idx}`,
-            title: line.replace(/^[-*\d.\)\s]+/, "").slice(0, 60),
-            description: line,
-            severity: line.toLowerCase().includes("high") || line.toLowerCase().includes("overspend") ? "warning" : "info",
-          });
-        } else if (isLesson && parsedLessons.length < 3) {
-          parsedLessons.push({
-            id: `l-${idx}`,
-            title: line.replace(/^[-*\d.\)\s]+/, "").slice(0, 60),
-            duration: "10-15 min",
-            challenge: line,
-          });
-        }
-      });
+      const parsedLessons: LessonSuggestion[] = (result.lessons ?? []).slice(0, 3).map((ls, idx) => ({
+        id: `l-${Date.now()}-${idx}`,
+        title: ls.title.slice(0, 80),
+        duration: ls.duration ?? "10-15 min",
+        challenge: ls.challenge.slice(0, 300),
+      }));
 
       if (parsedInsights.length === 0) {
         parsedInsights.push({ id: "fallback-i1", title: "Track recurring expenses", description: "Set category caps and review weekly.", severity: "info" });
@@ -151,7 +176,9 @@ export default function PremiumScreen() {
       setLessons(parsedLessons);
     } catch (e: any) {
       console.error("[Premium] AI generation error", e?.message);
-      Alert.alert("AI Error", "Failed to generate insights. Please try again.");
+      if (Platform.OS !== 'web') {
+        Alert.alert("AI Error", "Failed to generate insights. Please try again.");
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -178,7 +205,9 @@ export default function PremiumScreen() {
       });
       if (parsed.length > 0) setChallenges(prev => [...prev, ...parsed]);
     } catch (e) {
-      Alert.alert("AI Error", "Couldn't suggest challenges right now.");
+      if (Platform.OS !== 'web') {
+        Alert.alert("AI Error", "Couldn't suggest challenges right now.");
+      }
     } finally {
       setAiSuggesting(false);
     }
@@ -199,9 +228,11 @@ export default function PremiumScreen() {
     setNewChallengeSavings("50");
   }, [newChallengeTitle, newChallengeDays, newChallengeSavings]);
 
+  const insets = useSafeAreaInsets();
+
   if (!user?.isPremium) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <LinearGradient colors={[Colors.primary, Colors.primaryLight]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, styles.heroLockedOffset]}> 
           <View style={styles.heroBadge}>
             <Lock color="#FFFFFF" size={18} />
@@ -219,7 +250,7 @@ export default function PremiumScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <LinearGradient
           colors={[Colors.primary, Colors.primaryLight]}
@@ -293,8 +324,11 @@ export default function PremiumScreen() {
                   <Text style={styles.lessonMeta}>{l.duration}</Text>
                   <Text style={styles.lessonChallenge}>{l.challenge}</Text>
                 </View>
-                <TouchableOpacity style={styles.startBtn} testID={`start-${l.id}`}>
-                  <Text style={styles.startBtnText}>Start</Text>
+                <TouchableOpacity style={styles.startBtn} testID={`start-${l.id}`} onPress={() => {
+                  const created: UserChallenge = { id: `c-from-lesson-${l.id}`, title: l.title, targetDays: 7, targetSavings: 25, active: true };
+                  setChallenges(prev => [created, ...prev]);
+                }}>
+                  <Text style={styles.startBtnText}>Add Challenge</Text>
                 </TouchableOpacity>
               </View>
             ))
@@ -354,6 +388,61 @@ export default function PremiumScreen() {
               </View>
             ))
           )}
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>AI Advisor</Text>
+            <MessageSquare color={Colors.primary} size={18} />
+          </View>
+          <View style={styles.chatBox}>
+            {advisor.messages.map((m) => (
+              <View key={m.id} style={styles.chatMessage} testID={`msg-${m.id}`}>
+                <Text style={styles.chatRole}>{m.role}</Text>
+                {m.parts.map((part, i) => {
+                  if (part.type === "text") {
+                    return <Text key={`${m.id}-${i}`} style={styles.chatText}>{part.text}</Text>;
+                  }
+                  if (part.type === "tool") {
+                    const state = part.state;
+                    if (state === "input-streaming" || state === "input-available") {
+                      return <Text key={`${m.id}-${i}`} style={styles.chatTool}>Calling {part.toolName}...</Text>;
+                    }
+                    if (state === "output-available") {
+                      return <Text key={`${m.id}-${i}`} style={styles.chatTool}>Done: {JSON.stringify(part.output)}</Text>;
+                    }
+                    if (state === "output-error") {
+                      return <Text key={`${m.id}-${i}`} style={styles.chatError}>Error: {part.errorText}</Text>;
+                    }
+                  }
+                  return null;
+                })}
+              </View>
+            ))}
+            {advisor.error ? <Text style={styles.chatError}>Error: {String(advisor.error)}</Text> : null}
+          </View>
+          <View style={styles.chatInputRow}>
+            <TextInput
+              testID="advisor-input"
+              placeholder="Ask the AI to review your spending or create a challenge..."
+              placeholderTextColor={Colors.gray500}
+              value={advisorInput}
+              onChangeText={setAdvisorInput}
+              style={[styles.input, styles.chatInput]}
+            />
+            <TouchableOpacity
+              testID="advisor-send"
+              style={styles.sendButton}
+              onPress={() => {
+                const msg = advisorInput.trim();
+                if (!msg) return;
+                setAdvisorInput("");
+                advisor.sendMessage(`Context: income ${monthlyIncome}, expenses ${monthlyExpenses}. Recent: ${transactions.slice(0,10).map(t=>`${t.type} $${t.amount} ${t.category}`).join("; ")}.\n\nUser: ${msg}`);
+              }}
+            >
+              <Send color="#FFFFFF" size={16} />
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </View>
@@ -589,5 +678,54 @@ const styles = StyleSheet.create({
   },
   challengeMeta: {
     color: Colors.gray500,
+  },
+  chatBox: {
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    padding: 12,
+    maxHeight: 260,
+    gap: 8,
+  },
+  chatMessage: {
+    backgroundColor: Colors.gray100,
+    borderRadius: 8,
+    padding: 8,
+  },
+  chatRole: {
+    fontSize: 11,
+    color: Colors.gray500,
+    marginBottom: 4,
+    fontWeight: "700",
+  },
+  chatText: {
+    color: Colors.ink,
+    fontSize: 13,
+  },
+  chatTool: {
+    color: Colors.primary,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  chatError: {
+    color: "#EF4444",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  chatInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+  },
+  chatInput: {
+    flex: 1,
+  },
+  sendButton: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
