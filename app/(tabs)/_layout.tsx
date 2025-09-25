@@ -57,7 +57,6 @@ export default function TabLayout() {
         name="premium"
         options={{
           title: "Premium",
-          href: isPremium ? undefined : null,
           tabBarIcon: ({ color, size }) => <Crown color={color} size={size} />,
         }}
       />
