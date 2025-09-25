@@ -16,10 +16,43 @@ import {
   PieChart,
   BarChart3
 } from "lucide-react-native";
+import Svg, { Path, Circle } from "react-native-svg";
 import { useFinance } from "@/providers/FinanceProvider";
 import { Colors } from "@/constants/colors";
 
 const { width } = Dimensions.get("window");
+
+type DailyPoint = { label: string; amount: number; pct: number };
+
+function Sparkline({ data, color }: { data: DailyPoint[]; color: string }) {
+  const w = width - 40 - 40;
+  const h = 80;
+  const padding = 4;
+  const values = data.map((d) => d.amount);
+  const max = values.length > 0 ? Math.max(...values) : 0;
+  const min = values.length > 0 ? Math.min(...values) : 0;
+  const range = Math.max(1, max - min);
+  const stepX = data.length > 1 ? (w - padding * 2) / (data.length - 1) : 0;
+
+  const points = data.map((d, i) => {
+    const x = padding + i * stepX;
+    const y = h - padding - ((d.amount - min) / range) * (h - padding * 2);
+    return { x, y };
+  });
+
+  const pathD = points
+    .map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`))
+    .join(" ");
+
+  const last = points[points.length - 1] ?? { x: 0, y: h - padding };
+
+  return (
+    <Svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+      <Path d={pathD} stroke={color} strokeWidth={2} fill="none" />
+      <Circle cx={last.x} cy={last.y} r={3.5} fill={color} />
+    </Svg>
+  );
+}
 
 export default function ReportsScreen() {
   const [selectedPeriod, setSelectedPeriod] = useState<"day" | "week" | "month" | "year">("day");
@@ -46,7 +79,7 @@ export default function ReportsScreen() {
     coffee: "#92400E",
   } as const;
 
-  const dailySeries = useMemo(() => {
+  const dailySeries = useMemo<DailyPoint[]>(() => {
     const days = 7;
     const now = new Date();
     const map: Record<string, number> = {};
@@ -56,7 +89,7 @@ export default function ReportsScreen() {
       const key = d.toISOString().slice(0, 10);
       map[key] = 0;
     }
-    transactions.forEach(t => {
+    transactions.forEach((t) => {
       const key = t.date.toISOString().slice(0, 10);
       if (t.type === "expense" && map[key] !== undefined) {
         map[key] += t.amount;
@@ -71,6 +104,18 @@ export default function ReportsScreen() {
     }));
   }, [transactions]);
 
+  const kpis = useMemo(() => {
+    const avgDaily = dailySeries.length > 0 ? dailySeries.reduce((s, d) => s + d.amount, 0) / dailySeries.length : 0;
+    const savingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpenses) / monthlyIncome) * 100 : 0;
+    const topCategory = Object.entries(expensesByCategory).sort((a, b) => b[1] - a[1])[0];
+    return [
+      { label: "Spend MTD", value: `$${monthlyExpenses.toLocaleString()}`, sub: "This month", color: Colors.primary },
+      { label: "Avg Daily", value: `$${avgDaily.toFixed(0)}`, sub: "Last 7 days", color: "#10B981" },
+      { label: "Top Category", value: topCategory ? `${topCategory[0]}` : "—", sub: topCategory ? `$${topCategory[1].toFixed(0)}` : "No data", color: "#F59E0B" },
+      { label: "Savings Rate", value: `${savingsRate.toFixed(0)}%`, sub: "Income vs Spend", color: "#6366F1" },
+    ];
+  }, [dailySeries, monthlyExpenses, monthlyIncome, monthlyExpenses, expensesByCategory]);
+
   const renderPieChart = () => {
     const categories = Object.entries(expensesByCategory);
     const segments = categories.map(([category, amount]) => {
@@ -79,7 +124,7 @@ export default function ReportsScreen() {
         category,
         amount,
         percentage,
-        color: (categoryColors as any)[category] || "#6B7280",
+        color: (categoryColors as Record<string, string>)[category] ?? "#6B7280",
       } as {
         category: string;
         amount: number;
@@ -93,14 +138,14 @@ export default function ReportsScreen() {
         <View style={styles.pieChartWrapper}>
           {segments.map((segment) => (
             <View key={segment.category} style={styles.chartSegment}>
-              <View 
+              <View
                 style={[
-                  styles.segmentBar, 
-                  { 
+                  styles.segmentBar,
+                  {
                     backgroundColor: segment.color,
-                    width: `${segment.percentage}%`
-                  }
-                ]} 
+                    width: `${segment.percentage}%`,
+                  },
+                ]}
               />
               <View style={styles.segmentInfo}>
                 <Text style={styles.segmentCategory}>
@@ -140,7 +185,12 @@ export default function ReportsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        <LinearGradient colors={[Colors.primary, Colors.primaryLight]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+        <LinearGradient
+          colors={[Colors.primary, Colors.primaryLight]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.hero}
+        >
           <Text style={styles.heroTitle}>Reports</Text>
           <Text style={styles.heroSubtitle}>Track, compare and optimize your spending</Text>
         </LinearGradient>
@@ -168,58 +218,34 @@ export default function ReportsScreen() {
           ))}
         </View>
 
-        <View style={styles.summaryContainer}>
-          <LinearGradient
-            colors={["#10B981", "#059669"]}
-            style={styles.summaryCard}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View style={styles.summaryIcon}>
-              <TrendingUp color="#FFFFFF" size={24} />
-            </View>
-            <View style={styles.summaryContent}>
-              <Text style={styles.summaryLabel}>Total Income</Text>
-              <Text style={styles.summaryAmount}>
-                ${monthlyIncome.toLocaleString()}
-              </Text>
-            </View>
-          </LinearGradient>
-
-          <LinearGradient
-            colors={["#EF4444", "#DC2626"]}
-            style={styles.summaryCard}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View style={styles.summaryIcon}>
-              <TrendingDown color="#FFFFFF" size={24} />
-            </View>
-            <View style={styles.summaryContent}>
-              <Text style={styles.summaryLabel}>Total Expenses</Text>
-              <Text style={styles.summaryAmount}>
-                ${monthlyExpenses.toLocaleString()}
-              </Text>
-            </View>
-          </LinearGradient>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>KPIs</Text>
+            <BarChart3 color={Colors.primary} size={20} />
+          </View>
+          <View style={styles.kpiGrid}>
+            {kpis.map((k, idx) => (
+              <View key={`${k.label}-${idx}`} style={styles.kpiCard} testID={`kpi-${idx}`}>
+                <Text style={styles.kpiLabel}>{k.label}</Text>
+                <Text style={[styles.kpiValue, { color: k.color }]}>{k.value}</Text>
+                <Text style={styles.kpiSub}>{k.sub}</Text>
+              </View>
+            ))}
+          </View>
         </View>
 
-        <View style={styles.netIncomeCard}>
-          <View style={styles.netIncomeHeader}>
-            <Text style={styles.netIncomeLabel}>Net Income</Text>
-            <View style={styles.netIncomeIcon}>
-              <BarChart3 color="#6366F1" size={20} />
-            </View>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Daily Sparkline</Text>
+            <Calendar color={Colors.primary} size={20} />
           </View>
-          <Text style={[
-            styles.netIncomeAmount,
-            { color: monthlyIncome - monthlyExpenses >= 0 ? "#10B981" : "#EF4444" }
-          ]}>
-            ${(monthlyIncome - monthlyExpenses).toLocaleString()}
-          </Text>
-          <Text style={styles.netIncomeSubtext}>
-            {monthlyIncome - monthlyExpenses >= 0 ? "You're saving money!" : "You're overspending"}
-          </Text>
+          <View style={[styles.chartContainer, { alignItems: "center" }]}>
+            {dailySeries.length > 1 ? (
+              <Sparkline data={dailySeries} color={Colors.primary} />)
+            : (
+              <Text style={styles.emptyStateSubtext}>Not enough data</Text>
+            )}
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -252,10 +278,12 @@ export default function ReportsScreen() {
           {transactions.slice(0, 5).map((transaction) => (
             <View key={transaction.id} style={styles.transactionCard}>
               <View style={styles.transactionLeft}>
-                <View style={[
-                  styles.transactionIcon,
-                  { backgroundColor: transaction.type === "income" ? "#10B981" : "#EF4444" }
-                ]}>
+                <View
+                  style={[
+                    styles.transactionIcon,
+                    { backgroundColor: transaction.type === "income" ? "#10B981" : "#EF4444" },
+                  ]}
+                >
                   {transaction.type === "income" ? (
                     <TrendingUp color="#FFFFFF" size={16} />
                   ) : (
@@ -271,10 +299,12 @@ export default function ReportsScreen() {
                   </Text>
                 </View>
               </View>
-              <Text style={[
-                styles.transactionAmount,
-                { color: transaction.type === "income" ? "#10B981" : "#EF4444" }
-              ]}>
+              <Text
+                style={[
+                  styles.transactionAmount,
+                  { color: transaction.type === "income" ? "#10B981" : "#EF4444" },
+                ]}
+              >
                 {transaction.type === "income" ? "+" : "-"}${transaction.amount.toLocaleString()}
               </Text>
             </View>
@@ -567,5 +597,35 @@ const styles = StyleSheet.create({
   transactionAmount: {
     fontSize: 14,
     fontWeight: "bold",
+  },
+  kpiGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  kpiCard: {
+    width: "48%",
+    backgroundColor: Colors.white,
+    borderRadius: 14,
+    padding: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  kpiLabel: {
+    fontSize: 12,
+    color: Colors.gray500,
+    marginBottom: 6,
+  },
+  kpiValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 2,
+  },
+  kpiSub: {
+    fontSize: 11,
+    color: Colors.gray500,
   },
 });
