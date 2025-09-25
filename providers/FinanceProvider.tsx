@@ -133,7 +133,7 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
       const storedHideBalance = await storage.getItem("hideBalance");
 
       const supaReady = await ensureSupabaseReady();
-      if (supaReady.configured) {
+      if (supaReady.configured && !supaReady.error) {
         try {
           const [remoteTx, remoteGoals] = await Promise.all([
             fetchTransactionsForCurrentDevice(),
@@ -169,6 +169,8 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
         } catch (e) {
           console.warn('[FinanceProvider] Supabase sync failed, falling back to local', e);
         }
+      } else if (supaReady.error) {
+        console.warn('[FinanceProvider] Supabase reachable but reported error:', supaReady.error);
       }
 
       const isNewUser = !storedTransactions && !storedGoals && !storedPoints;

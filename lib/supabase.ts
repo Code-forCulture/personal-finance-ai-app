@@ -8,9 +8,13 @@ export type SupabaseConfig = {
 const CONFIG: SupabaseConfig | null = (() => {
   const rawUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
   const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
-  if (rawUrl && anonKey) {
-    const url = rawUrl.replace(/\/$/, '');
-    return { url, anonKey };
+  try {
+    if (rawUrl && anonKey) {
+      const url = new URL(rawUrl).origin.replace(/\/$/, '');
+      return { url, anonKey };
+    }
+  } catch {
+    return null;
   }
   return null;
 })();
@@ -49,29 +53,38 @@ function headers() {
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (!CONFIG) throw new Error('Supabase is not configured');
-  const url = `${CONFIG.url}${path}`;
+  const base = CONFIG.url.replace(/\/$/, '');
+  const full = path.startsWith('/') ? `${base}${path}` : `${base}/${path}`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      ...headers(),
-      ...(init?.headers || {}),
-    },
-    signal: controller.signal,
-    mode: Platform.OS === 'web' ? 'cors' : undefined,
-  } as RequestInit);
-  clearTimeout(timeoutId);
-  const text = await res.text();
-  if (!res.ok) {
-    console.error('[supabase] HTTP error', res.status, text);
-    throw new Error(`Supabase ${res.status}: ${text}`);
-  }
   try {
-    return text ? (JSON.parse(text) as T) : (undefined as unknown as T);
-  } catch (e) {
-    console.error('[supabase] JSON parse error', e, text);
-    throw new Error('Invalid JSON from Supabase');
+    const res = await fetch(full, {
+      ...init,
+      headers: {
+        ...headers(),
+        ...(init?.headers || {}),
+      },
+      signal: controller.signal,
+      mode: Platform.OS === 'web' ? 'cors' : undefined,
+    } as RequestInit);
+    clearTimeout(timeoutId);
+    const text = await res.text();
+    if (!res.ok) {
+      console.error('[supabase] HTTP error', res.status, text);
+      throw new Error(`Supabase ${res.status}: ${text}`);
+    }
+    try {
+      return text ? (JSON.parse(text) as T) : (undefined as unknown as T);
+    } catch (e) {
+      console.error('[supabase] JSON parse error', e, text);
+      throw new Error('Invalid JSON from Supabase');
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if ((err as Error).name === 'AbortError') {
+      throw new Error('Supabase request timeout');
+    }
+    throw err as Error;
   }
 }
 
@@ -166,8 +179,13 @@ export async function upsertGoal(
   }
 }
 
-export async function ensureSupabaseReady(): Promise<{ configured: boolean; deviceId?: string }> {
+export async function ensureSupabaseReady(): Promise<{ configured: boolean; deviceId?: string; error?: string }> {
   if (!CONFIG) return { configured: false };
-  const deviceId = await getDeviceId();
-  return { configured: true, deviceId };
+  try {
+    const deviceId = await getDeviceId();
+    await http('/rest/v1/', { method: 'HEAD' });
+    return { configured: true, deviceId };
+  } catch (e) {
+    return { configured: true, error: (e as Error).message };
+  }
 }
