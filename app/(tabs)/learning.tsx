@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -7,10 +7,11 @@ import {
   TouchableOpacity,
   Alert,
   TextInput,
+  Platform,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+
 import { LinearGradient } from "expo-linear-gradient";
-import { 
+import {
   Brain,
   BookOpen,
   Target,
@@ -20,7 +21,10 @@ import {
   CheckCircle,
   Play,
   Lock,
-  ShieldCheck
+  ShieldCheck,
+  Plus,
+  CalendarDays,
+  Tag,
 } from "lucide-react-native";
 import { useFinance } from "@/providers/FinanceProvider";
 import { useChallenges } from "@/providers/ChallengesProvider";
@@ -80,6 +84,8 @@ function ChallengesTab() {
   const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
   const [duration, setDuration] = useState<string>("7");
 
+  const canCreate = useMemo(() => title.trim().length > 0, [title]);
+
   const onCreate = async () => {
     const t = title.trim();
     const amt = Math.max(1, Math.floor(Number(targetAmount)) || 1);
@@ -98,132 +104,184 @@ function ChallengesTab() {
 
   return (
     <View style={styles.tabContent}>
-      <View style={styles.createCard}>
-        <Text style={styles.createTitle}>Create Challenge</Text>
-        <TextInput
-          testID="challenge-title"
-          style={styles.input}
-          placeholder="Title (e.g., No Takeout Week)"
-          placeholderTextColor={Colors.gray500}
-          value={title}
-          onChangeText={setTitle}
-        />
-        <View style={styles.rowGap}>
-          <TextInput
-            testID="challenge-target"
-            style={[styles.input, styles.inputHalf]}
-            placeholder="Target (e.g., 5)"
-            placeholderTextColor={Colors.gray500}
-            keyboardType="numeric"
-            value={targetAmount}
-            onChangeText={setTargetAmount}
-          />
-          <TextInput
-            testID="challenge-category"
-            style={[styles.input, styles.inputHalf]}
-            placeholder="Category (optional)"
-            placeholderTextColor={Colors.gray500}
-            value={category}
-            onChangeText={setCategory}
-          />
+      <LinearGradient
+        colors={["#111827", "#0B1220"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.creatorGradient}
+      >
+        <Text style={styles.creatorTitle}>Create a Challenge</Text>
+        <View style={styles.creatorRow}>
+          <View style={styles.inputIconWrap}>
+            <Target color={Colors.gray500} size={16} />
+            <TextInput
+              testID="challenge-title"
+              style={styles.inputClear}
+              placeholder="Title (e.g., No Takeout Week)"
+              placeholderTextColor={Colors.gray500}
+              value={title}
+              onChangeText={setTitle}
+            />
+          </View>
         </View>
-        <View style={styles.rowGap}>
-          {(["daily", "weekly", "monthly"] as const).map((p) => (
-            <TouchableOpacity
-              key={p}
-              testID={`period-${p}`}
-              style={[styles.pill, period === p && styles.pillActive]}
-              onPress={() => setPeriod(p)}
-            >
-              <Text style={[styles.pillText, period === p && styles.pillTextActive]}>{p}</Text>
-            </TouchableOpacity>
-          ))}
-          <TextInput
-            testID="challenge-duration"
-            style={[styles.input, styles.inputHalf]}
-            placeholder="Days"
-            placeholderTextColor={Colors.gray500}
-            keyboardType="numeric"
-            value={duration}
-            onChangeText={setDuration}
-          />
+        <View style={styles.creatorRowSplit}>
+          <View style={[styles.inputIconWrap, styles.inputHalf]}>
+            <Award color={Colors.gray500} size={16} />
+            <TextInput
+              testID="challenge-target"
+              style={styles.inputClear}
+              placeholder="Target (e.g., 5)"
+              placeholderTextColor={Colors.gray500}
+              keyboardType="numeric"
+              value={targetAmount}
+              onChangeText={setTargetAmount}
+            />
+          </View>
+          <View style={[styles.inputIconWrap, styles.inputHalf]}>
+            <Tag color={Colors.gray500} size={16} />
+            <TextInput
+              testID="challenge-category"
+              style={styles.inputClear}
+              placeholder="Category (optional)"
+              placeholderTextColor={Colors.gray500}
+              value={category}
+              onChangeText={setCategory}
+            />
+          </View>
         </View>
-        <View style={styles.challengeActionsRow}>
-          <TouchableOpacity testID="create-challenge" style={styles.startButton} onPress={onCreate}>
-            <Target color={Colors.white} size={14} />
-            <Text style={styles.startButtonText}>Add</Text>
+        <View style={styles.creatorRowSplit}>
+          <View style={styles.segmentGroup}>
+            {(["daily", "weekly", "monthly"] as const).map((p) => (
+              <TouchableOpacity
+                key={p}
+                testID={`period-${p}`}
+                style={[styles.segment, period === p && styles.segmentActive]}
+                onPress={() => {
+                  if (p === "daily" || p === "weekly" || p === "monthly") {
+                    setPeriod(p);
+                  }
+                }}
+              >
+                <Text style={[styles.segmentText, period === p && styles.segmentTextActive]}>{p}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={[styles.inputIconWrap, styles.inputHalf]}>
+            <CalendarDays color={Colors.gray500} size={16} />
+            <TextInput
+              testID="challenge-duration"
+              style={styles.inputClear}
+              placeholder="Days"
+              placeholderTextColor={Colors.gray500}
+              keyboardType="numeric"
+              value={duration}
+              onChangeText={setDuration}
+            />
+          </View>
+        </View>
+        <View style={styles.creatorActions}>
+          <TouchableOpacity
+            testID="create-challenge"
+            style={[styles.ctaPrimary, !canCreate && styles.ctaDisabled]}
+            onPress={onCreate}
+            disabled={!canCreate}
+          >
+            <Plus color={Colors.white} size={16} />
+            <Text style={styles.ctaPrimaryText}>Add Challenge</Text>
           </TouchableOpacity>
           <TouchableOpacity
             testID="ai-suggest"
-            style={[styles.startButton, { backgroundColor: "#8B5CF6" }]}
+            style={styles.ctaGhost}
             onPress={suggestChallengesFromAI}
             disabled={loadingSuggest}
           >
-            <Brain color={Colors.white} size={14} />
-            <Text style={styles.startButtonText}>{loadingSuggest ? "Suggesting..." : "AI Suggest"}</Text>
+            <Brain color={Colors.white} size={16} />
+            <Text style={styles.ctaGhostText}>{loadingSuggest ? "Suggesting..." : "AI Suggest"}</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </LinearGradient>
 
       {challenges.length === 0 && (
-        <View style={styles.insightCard}>
-          <Text style={styles.insightText}>No challenges yet. Create one or let AI suggest.</Text>
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>No challenges yet</Text>
+          <Text style={styles.emptySubtitle}>Create one above or let AI suggest based on your spending.</Text>
         </View>
       )}
 
       {challenges.map((challenge) => {
         const total = Math.max(1, challenge.targetAmount);
-        const pct = Math.min(100, Math.max(0, (challenge.progress / total) * 100));
+        const pctNum = Math.min(100, Math.max(0, (challenge.progress / total) * 100));
+        const pct = `${pctNum}%` as const;
+        const now = new Date();
+        const end = new Date(challenge.endDate);
+        const daysLeft = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
         return (
-          <View key={challenge.id} style={styles.challengeCard}>
-            <LinearGradient
-              colors={challenge.completed ? ["#10B981", "#059669"] : ["#3B82F6", "#2563EB"]}
-              style={styles.challengeGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <View style={styles.challengeHeader}>
-                <Target color={Colors.white} size={24} />
-                <Text style={styles.challengeReward}>{challenge.period.toUpperCase()}</Text>
-              </View>
-              <Text style={styles.challengeTitle}>{challenge.title}</Text>
-              {!!challenge.description && (
-                <Text style={styles.challengeDescription}>{challenge.description}</Text>
-              )}
-              <View style={styles.progressContainer}>
-                <View style={styles.progressBar}>
-                  <View style={[styles.progressFill, { width: `${pct}%` }]} />
+          <View key={challenge.id} style={styles.challengeCardModern}>
+            <View style={styles.challengeTopRow}>
+              <View style={styles.badgeRow}>
+                <View style={styles.badgeSoft}>
+                  <Target color={Colors.primary} size={14} />
+                  <Text style={styles.badgeSoftText}>{challenge.period}</Text>
                 </View>
-                <Text style={styles.progressText}>
-                  {Math.round(challenge.progress)}/{Math.round(total)}
-                </Text>
-              </View>
-              <View style={styles.actionsRow}>
-                {!challenge.completed ? (
-                  <>
-                    <TouchableOpacity
-                      testID={`progress-${challenge.id}`}
-                      style={styles.challengeButton}
-                      onPress={() => updateProgress(challenge.id, Math.min(total, challenge.progress + 1))}
-                    >
-                      <Text style={styles.challengeButtonText}>+1 Progress</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      testID={`complete-${challenge.id}`}
-                      style={[styles.challengeButton, { backgroundColor: "#10B981" }]}
-                      onPress={() => completeChallenge(challenge.id)}
-                    >
-                      <Text style={[styles.challengeButtonText, { color: Colors.white }]}>Mark Done</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <View style={[styles.completedBadge, { backgroundColor: "transparent" }]}>
-                    <CheckCircle color="#10B981" size={16} />
-                    <Text style={[styles.completedText, { color: Colors.white }]}>Completed</Text>
+                {challenge.category ? (
+                  <View style={styles.badgeSoftAlt}>
+                    <Tag color={Colors.gray600} size={12} />
+                    <Text style={styles.badgeSoftAltText}>{challenge.category}</Text>
                   </View>
-                )}
+                ) : null}
               </View>
-            </LinearGradient>
+              {challenge.completed ? (
+                <View style={styles.completedBadge}>
+                  <CheckCircle color="#10B981" size={16} />
+                  <Text style={styles.completedText}>Completed</Text>
+                </View>
+              ) : (
+                <View style={styles.daysLeft}>
+                  <CalendarDays color={Colors.gray600} size={14} />
+                  <Text style={styles.daysLeftText}>{daysLeft}d left</Text>
+                </View>
+              )}
+            </View>
+
+            <Text style={styles.challengeTitleModern}>{challenge.title}</Text>
+            {!!challenge.description && (
+              <Text style={styles.challengeDescModern}>{challenge.description}</Text>
+            )}
+
+            <View style={styles.progressWrapModern}>
+              <View style={styles.progressTrackModern}>
+                <LinearGradient
+                  colors={["#60A5FA", "#2563EB"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[styles.progressFillModern, { width: pct }]}
+                />
+              </View>
+              <Text style={styles.progressTextModern}>
+                {Math.round(challenge.progress)}/{Math.round(total)}
+              </Text>
+            </View>
+
+            {!challenge.completed ? (
+              <View style={styles.actionsRowModern}>
+                <TouchableOpacity
+                  testID={`progress-${challenge.id}`}
+                  style={styles.actionLight}
+                  onPress={() => updateProgress(challenge.id, Math.min(total, challenge.progress + 1))}
+                >
+                  <Plus color={Colors.primary} size={16} />
+                  <Text style={styles.actionLightText}>+1 Progress</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID={`complete-${challenge.id}`}
+                  style={styles.actionSuccess}
+                  onPress={() => completeChallenge(challenge.id)}
+                >
+                  <CheckCircle color={Colors.white} size={16} />
+                  <Text style={styles.actionSuccessText}>Mark Done</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
         );
       })}
@@ -269,7 +327,12 @@ export default function LearningScreen() {
       const data = await response.json();
       setAiInsight((data as { completion?: string }).completion ?? "");
     } catch {
-      Alert.alert("Error", "Failed to generate AI insight. Please try again.");
+      if (Platform.OS === "web") {
+        // eslint-disable-next-line no-console
+        console.error("Failed to generate AI insight. Please try again.");
+      } else {
+        Alert.alert("Error", "Failed to generate AI insight. Please try again.");
+      }
     } finally {
       setIsGeneratingInsight(false);
     }
@@ -371,7 +434,7 @@ export default function LearningScreen() {
           testID="go-premium"
           onPress={() => router.push("/premium")}
           style={styles.lockCta}
-          accessibilityRole="button"
+          accessibilityRole={Platform.OS === "web" ? undefined : ("button" as const)}
         >
           <ShieldCheck color="#FFFFFF" size={18} />
           <Text style={styles.lockCtaText}>Go to Premium</Text>
@@ -381,7 +444,7 @@ export default function LearningScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Learning Hub</Text>
         <View style={styles.pointsContainer}>
@@ -392,6 +455,7 @@ export default function LearningScreen() {
 
       <View style={styles.tabContainer}>
         <TouchableOpacity
+          testID="tab-lessons"
           style={[styles.tab, selectedTab === "lessons" && styles.tabActive]}
           onPress={() => setSelectedTab("lessons")}
         >
@@ -403,6 +467,7 @@ export default function LearningScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
+          testID="tab-challenges"
           style={[styles.tab, selectedTab === "challenges" && styles.tabActive]}
           onPress={() => setSelectedTab("challenges")}
         >
@@ -414,6 +479,7 @@ export default function LearningScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
+          testID="tab-ai"
           style={[styles.tab, selectedTab === "ai" && styles.tabActive]}
           onPress={() => setSelectedTab("ai")}
         >
@@ -427,7 +493,7 @@ export default function LearningScreen() {
         {selectedTab === "challenges" && (user?.isPremium ? <ChallengesTab /> : renderLockedChallenges())}
         {selectedTab === "ai" && renderAI()}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -581,130 +647,253 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontWeight: "600",
   },
-  challengeCard: {
-    marginBottom: 16,
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  challengeGradient: {
-    padding: 20,
-  },
-  challengeHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  challengeReward: {
-    color: Colors.white,
-    fontSize: 14,
-    fontWeight: "bold",
-  },
-  challengeTitle: {
-    color: Colors.white,
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 8,
-  },
-  challengeDescription: {
-    color: Colors.white,
-    fontSize: 14,
-    opacity: 0.9,
-    marginBottom: 16,
-  },
-  progressContainer: {
-    marginBottom: 16,
-  },
-  progressBar: {
-    height: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.3)",
-    borderRadius: 4,
-    marginBottom: 8,
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: Colors.white,
-    borderRadius: 4,
-  },
-  progressText: {
-    color: Colors.white,
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  challengeButton: {
-    backgroundColor: Colors.white,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  challengeButtonInactive: {
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
-  },
-  challengeButtonText: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: Colors.ink,
-  },
-  challengeActionsRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 12,
-  },
-  createCard: {
-    backgroundColor: Colors.white,
+  creatorGradient: {
     borderRadius: 16,
     padding: 16,
-    marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
+    marginBottom: 18,
   },
-  createTitle: {
+  creatorTitle: {
+    color: Colors.white,
     fontSize: 16,
     fontWeight: "700",
-    color: Colors.ink,
     marginBottom: 10,
   },
-  input: {
-    backgroundColor: Colors.gray100,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: Colors.ink,
-    borderWidth: 0,
+  creatorRow: {
     marginBottom: 10,
   },
-  rowGap: {
+  creatorRowSplit: {
     flexDirection: "row",
     gap: 10,
-    alignItems: "center",
+    alignItems: "stretch",
     marginBottom: 10,
+  },
+  inputIconWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  inputClear: {
+    flex: 1,
+    color: Colors.white,
+    padding: 0,
   },
   inputHalf: {
     flex: 1,
   },
-  pill: {
-    paddingHorizontal: 12,
+  segmentGroup: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 12,
+    padding: 4,
+    flexDirection: "row",
+    gap: 6,
+  },
+  segment: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 8,
-    backgroundColor: Colors.gray100,
-    borderRadius: 999,
+    borderRadius: 10,
   },
-  pillActive: {
-    backgroundColor: Colors.primary,
+  segmentActive: {
+    backgroundColor: Colors.white,
   },
-  pillText: {
-    color: Colors.gray500,
+  segmentText: {
+    color: "#E5E7EB",
     fontWeight: "600",
     textTransform: "capitalize",
   },
-  pillTextActive: {
-    color: Colors.white,
+  segmentTextActive: {
+    color: Colors.ink,
   },
-  actionsRow: {
+  creatorActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  ctaPrimary: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    gap: 8,
+  },
+  ctaDisabled: {
+    opacity: 0.5,
+  },
+  ctaPrimaryText: {
+    color: Colors.white,
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  ctaGhost: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.14)",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    gap: 8,
+  },
+  ctaGhostText: {
+    color: Colors.white,
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  emptyState: {
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Colors.ink,
+    marginBottom: 6,
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    color: Colors.gray600,
+  },
+  challengeCardModern: {
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  challengeTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  badgeRow: {
     flexDirection: "row",
     gap: 8,
+    alignItems: "center",
+  },
+  badgeSoft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Colors.tintSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  badgeSoftText: {
+    color: Colors.primary,
+    fontWeight: "700",
+    fontSize: 12,
+    textTransform: "capitalize",
+  },
+  badgeSoftAlt: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Colors.gray100,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  badgeSoftAltText: {
+    color: Colors.gray700,
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  daysLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  daysLeftText: {
+    color: Colors.gray700,
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  challengeTitleModern: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Colors.ink,
+    marginBottom: 6,
+  },
+  challengeDescModern: {
+    fontSize: 14,
+    color: Colors.gray600,
+    marginBottom: 12,
+  },
+  progressWrapModern: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
+  },
+  progressTrackModern: {
+    flex: 1,
+    height: 10,
+    backgroundColor: Colors.gray100,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  progressFillModern: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  progressTextModern: {
+    width: 72,
+    textAlign: "right",
+    color: Colors.gray700,
+    fontWeight: "700",
+  },
+  actionsRowModern: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  actionLight: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: Colors.gray100,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  actionLightText: {
+    color: Colors.primary,
+    fontWeight: "800",
+  },
+  actionSuccess: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#10B981",
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  actionSuccessText: {
+    color: Colors.white,
+    fontWeight: "800",
   },
   aiCard: {
     marginBottom: 20,

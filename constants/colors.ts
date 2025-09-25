@@ -5,6 +5,8 @@ export const Colors = {
   tintSoft: "#DBEAFE",
   white: "#FFFFFF",
   gray500: "#6B7280",
+  gray600: "#4B5563",
+  gray700: "#374151",
   gray100: "#F3F4F6",
   bg: "#F9FAFB",
 } as const;
