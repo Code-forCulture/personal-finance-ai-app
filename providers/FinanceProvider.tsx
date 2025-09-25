@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import createContextHook from "@nkzw/create-context-hook";
+import { ensureSupabaseReady, fetchGoalsForCurrentDevice, fetchTransactionsForCurrentDevice, isSupabaseConfigured, upsertGoal, upsertTransaction } from "@/lib/supabase";
 
 interface Transaction {
   id: string;
@@ -112,10 +113,9 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
     
     setTransactions(mockTransactionsWithUserId);
     setGoals(mockGoalsWithUserId);
-    setUserPoints(150); // Starting points
+    setUserPoints(150);
     setHideBalance(false);
     
-    // Store the initial data
     await storage.setItem("transactions", JSON.stringify(mockTransactionsWithUserId));
     await storage.setItem("goals", JSON.stringify(mockGoalsWithUserId));
     await storage.setItem("userPoints", "150");
@@ -124,25 +124,60 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
 
   const loadData = useCallback(async () => {
     try {
-      // Add small delay to prevent hydration mismatch
       await new Promise(resolve => setTimeout(resolve, 150));
-      
       console.log('[FinanceProvider] Loading finance data');
+
       const storedTransactions = await storage.getItem("transactions");
       const storedGoals = await storage.getItem("goals");
       const storedPoints = await storage.getItem("userPoints");
       const storedHideBalance = await storage.getItem("hideBalance");
 
-      // Check if this is a new user (no stored data)
+      const supaReady = await ensureSupabaseReady();
+      if (supaReady.configured) {
+        try {
+          const [remoteTx, remoteGoals] = await Promise.all([
+            fetchTransactionsForCurrentDevice(),
+            fetchGoalsForCurrentDevice(),
+          ]);
+          if (remoteTx.length > 0) {
+            const txMapped: Transaction[] = remoteTx.map((t) => ({
+              id: t.id,
+              type: t.type,
+              amount: t.amount,
+              category: t.category,
+              notes: t.notes ?? undefined,
+              date: new Date(t.date),
+              userId: t.user_id,
+            }));
+            setTransactions(txMapped);
+            await storage.setItem("transactions", JSON.stringify(txMapped));
+            console.log('[FinanceProvider] Synced transactions from Supabase:', txMapped.length);
+          }
+          if (remoteGoals.length > 0) {
+            const goalsMapped: Goal[] = remoteGoals.map((g) => ({
+              id: g.id,
+              title: g.title,
+              targetAmount: g.target_amount,
+              progress: g.progress,
+              deadline: new Date(g.deadline),
+              userId: g.user_id,
+            }));
+            setGoals(goalsMapped);
+            await storage.setItem("goals", JSON.stringify(goalsMapped));
+            console.log('[FinanceProvider] Synced goals from Supabase:', goalsMapped.length);
+          }
+        } catch (e) {
+          console.warn('[FinanceProvider] Supabase sync failed, falling back to local', e);
+        }
+      }
+
       const isNewUser = !storedTransactions && !storedGoals && !storedPoints;
-      
       if (isNewUser) {
         console.log('[FinanceProvider] New user detected, initializing with mock data');
         await initializeWithMockData();
         return;
       }
 
-      // Load transactions
       if (storedTransactions && storedTransactions.trim()) {
         try {
           const parsedTransactions = JSON.parse(storedTransactions);
@@ -166,7 +201,6 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
         setTransactions([]);
       }
 
-      // Load goals
       if (storedGoals && storedGoals.trim()) {
         try {
           const parsedGoals = JSON.parse(storedGoals);
@@ -190,7 +224,6 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
         setGoals([]);
       }
 
-      // Load points
       if (storedPoints && storedPoints.trim()) {
         const points = parseInt(storedPoints);
         setUserPoints(isNaN(points) ? 0 : points);
@@ -198,11 +231,10 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
         setUserPoints(0);
       }
 
-      // Load hide balance setting
       if (storedHideBalance && storedHideBalance.trim()) {
         try {
-          const hideBalance = JSON.parse(storedHideBalance);
-          setHideBalance(typeof hideBalance === 'boolean' ? hideBalance : false);
+          const hb = JSON.parse(storedHideBalance);
+          setHideBalance(typeof hb === 'boolean' ? hb : false);
         } catch (parseError) {
           console.error('[FinanceProvider] JSON parse error for hideBalance:', parseError);
           setHideBalance(false);
@@ -212,7 +244,6 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
       }
     } catch (error) {
       console.error('[FinanceProvider] Error loading finance data:', error);
-      // Fallback to empty state
       setTransactions([]);
       setGoals([]);
       setUserPoints(0);
@@ -238,7 +269,21 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
       setTransactions(updatedTransactions);
       await storage.setItem("transactions", JSON.stringify(updatedTransactions));
 
-      // Award points for adding transaction
+      try {
+        if (isSupabaseConfigured) {
+          await upsertTransaction({
+            id: newTransaction.id,
+            type: newTransaction.type,
+            amount: newTransaction.amount,
+            category: newTransaction.category,
+            notes: newTransaction.notes ?? null,
+            date: newTransaction.date.toISOString(),
+          });
+        }
+      } catch (e) {
+        console.warn('[FinanceProvider] Failed to sync transaction to Supabase', e);
+      }
+
       const newPoints = userPoints + 10;
       setUserPoints(newPoints);
       await storage.setItem("userPoints", newPoints.toString());
@@ -259,6 +304,20 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
       const updatedGoals = [...goals, newGoal];
       setGoals(updatedGoals);
       await storage.setItem("goals", JSON.stringify(updatedGoals));
+
+      try {
+        if (isSupabaseConfigured) {
+          await upsertGoal({
+            id: newGoal.id,
+            title: newGoal.title,
+            target_amount: newGoal.targetAmount,
+            progress: newGoal.progress,
+            deadline: newGoal.deadline.toISOString(),
+          });
+        }
+      } catch (e) {
+        console.warn('[FinanceProvider] Failed to sync goal to Supabase', e);
+      }
     } catch {
       console.error("Error adding goal");
       throw new Error("Failed to add goal");
