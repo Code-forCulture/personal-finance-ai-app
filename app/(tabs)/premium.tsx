@@ -1,15 +1,15 @@
 import React, { useMemo, useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Colors } from "@/constants/colors";
 import { useFinance } from "@/providers/FinanceProvider";
-import { Crown, Sparkles, BarChart3, BrainCircuit, Trophy, Lightbulb, ShieldCheck, Lock, Send, MessageSquare } from "lucide-react-native";
-
+import { Crown, Sparkles, BarChart3, Trophy, BrainCircuit, Lightbulb, ShieldCheck, Lock } from "lucide-react-native";
 import { useAuth } from "@/providers/AuthProvider";
 import Svg, { Path } from "react-native-svg";
-import { generateText, generateObject, useRorkAgent, createRorkTool } from "@rork/toolkit-sdk";
+import { generateObject } from "@rork/toolkit-sdk";
 import { z } from "zod";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 interface Insight {
   id: string;
@@ -23,14 +23,6 @@ interface LessonSuggestion {
   title: string;
   duration: string;
   challenge: string;
-}
-
-interface UserChallenge {
-  id: string;
-  title: string;
-  targetDays: number;
-  targetSavings: number;
-  active: boolean;
 }
 
 function Sparkline({ data, width, height, stroke }: { data: number[]; width: number; height: number; stroke: string }) {
@@ -71,36 +63,8 @@ export default function PremiumScreen() {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [lessons, setLessons] = useState<LessonSuggestion[]>([]);
-  const [challenges, setChallenges] = useState<UserChallenge[]>([]);
-  const [newChallengeTitle, setNewChallengeTitle] = useState<string>("");
-  const [newChallengeDays, setNewChallengeDays] = useState<string>("7");
-  const [newChallengeSavings, setNewChallengeSavings] = useState<string>("50");
-  const [aiSuggesting, setAiSuggesting] = useState<boolean>(false);
-  const [advisorInput, setAdvisorInput] = useState<string>("");
-
-  const addChallengeFromTool = useCallback((input: { title: string; targetDays?: number; targetSavings?: number }) => {
-    const days = typeof input.targetDays === "number" && input.targetDays > 0 ? input.targetDays : 7;
-    const savings = typeof input.targetSavings === "number" && input.targetSavings >= 0 ? input.targetSavings : 25;
-    const c: UserChallenge = { id: `c-ai-${Date.now()}`, title: input.title.slice(0, 80), targetDays: days, targetSavings: savings, active: true };
-    setChallenges(prev => [c, ...prev]);
-  }, []);
-
-  const advisor = useRorkAgent({
-    tools: {
-      addChallenge: createRorkTool({
-        description: "Create a savings challenge for the user",
-        zodSchema: z.object({
-          title: z.string().describe("Short challenge title"),
-          targetDays: z.number().int().min(1).max(365).optional(),
-          targetSavings: z.number().int().min(0).max(100000).optional(),
-        }),
-        execute: async (input) => {
-          addChallengeFromTool(input);
-          return "challenge-added";
-        },
-      }),
-    },
-  });
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   const expenseSeries = useMemo(() => {
     const sorted = [...transactions]
@@ -184,62 +148,16 @@ export default function PremiumScreen() {
     }
   }, [transactions, monthlyIncome, monthlyExpenses]);
 
-  const suggestAIChallenges = useCallback(async () => {
-    try {
-      setAiSuggesting(true);
-      const text = await generateText({
-        messages: [
-          { role: "assistant", content: "You are a concise personal finance coach." },
-          { role: "user", content: `Given my recent expenses ${JSON.stringify(expenseSeries)}, suggest 3 short, trackable savings challenges with title and target days and estimated savings in dollars.` },
-        ],
-      });
-      const lines = text.split(/\n|\r/).map(l => l.trim()).filter(Boolean).slice(0, 6);
-      const parsed: UserChallenge[] = [];
-      lines.forEach((l, i) => {
-        const title = l.replace(/^[-*\d.\)\s]+/, "").slice(0, 60);
-        const daysMatch = l.match(/(\d{1,3})\s*day/i);
-        const saveMatch = l.match(/\$?\s*(\d{1,5})/);
-        const targetDays = daysMatch?.[1] ? parseInt(daysMatch[1]!, 10) : 7;
-        const targetSavings = saveMatch?.[1] ? parseInt(saveMatch[1]!, 10) : 25;
-        parsed.push({ id: `c-ai-${Date.now()}-${i}`, title, targetDays, targetSavings, active: false });
-      });
-      if (parsed.length > 0) setChallenges(prev => [...prev, ...parsed]);
-    } catch (e) {
-      if (Platform.OS !== 'web') {
-        Alert.alert("AI Error", "Couldn't suggest challenges right now.");
-      }
-    } finally {
-      setAiSuggesting(false);
-    }
-  }, [expenseSeries]);
-
-  const addCustomChallenge = useCallback(() => {
-    const title = newChallengeTitle.trim();
-    const daysNum = parseInt(newChallengeDays || "0", 10);
-    const savingsNum = parseInt(newChallengeSavings || "0", 10);
-    if (!title || daysNum <= 0 || savingsNum < 0) {
-      Alert.alert("Invalid", "Provide a title, days (>0), and savings amount.");
-      return;
-    }
-    const c: UserChallenge = { id: `c-${Date.now()}`, title, targetDays: daysNum, targetSavings: savingsNum, active: true };
-    setChallenges(prev => [c, ...prev]);
-    setNewChallengeTitle("");
-    setNewChallengeDays("7");
-    setNewChallengeSavings("50");
-  }, [newChallengeTitle, newChallengeDays, newChallengeSavings]);
-
-  const insets = useSafeAreaInsets();
-
   if (!user?.isPremium) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[styles.container, { paddingTop: insets.top }]}> 
         <LinearGradient colors={[Colors.primary, Colors.primaryLight]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, styles.heroLockedOffset]}> 
           <View style={styles.heroBadge}>
             <Lock color="#FFFFFF" size={18} />
             <Text style={styles.heroBadgeText}>Premium Locked</Text>
           </View>
           <Text style={styles.heroTitle}>Unlock AI insights & advanced reports</Text>
-          <Text style={styles.heroSubtitle}>Get KPI dashboards, sparklines, personalized lessons and challenges.</Text>
+          <Text style={styles.heroSubtitle}>Get KPI dashboards, sparklines, personalized lessons.</Text>
           <TouchableOpacity testID="unlock-premium" accessibilityRole="button" onPress={purchasePremium} style={styles.ctaButton}>
             <ShieldCheck color="#FFFFFF" size={18} />
             <Text style={styles.ctaText}>Unlock Premium</Text>
@@ -250,7 +168,7 @@ export default function PremiumScreen() {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top }]}> 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <LinearGradient
           colors={[Colors.primary, Colors.primaryLight]}
@@ -263,7 +181,7 @@ export default function PremiumScreen() {
             <Text style={styles.heroBadgeText}>Premium</Text>
           </View>
           <Text style={styles.heroTitle}>Smarter insights, faster progress</Text>
-          <Text style={styles.heroSubtitle}>AI-powered reports, lessons, and challenges tailored to your spending.</Text>
+          <Text style={styles.heroSubtitle}>AI-powered reports and lessons tailored to your spending.</Text>
           <TouchableOpacity
             testID="generate-ai-button"
             accessibilityRole="button"
@@ -310,7 +228,7 @@ export default function PremiumScreen() {
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Mini-lessons & Challenges</Text>
+            <Text style={styles.sectionTitle}>Mini-lessons</Text>
             <Lightbulb color={Colors.primary} size={18} />
           </View>
           {lessons.length === 0 ? (
@@ -324,125 +242,16 @@ export default function PremiumScreen() {
                   <Text style={styles.lessonMeta}>{l.duration}</Text>
                   <Text style={styles.lessonChallenge}>{l.challenge}</Text>
                 </View>
-                <TouchableOpacity style={styles.startBtn} testID={`start-${l.id}`} onPress={() => {
-                  const created: UserChallenge = { id: `c-from-lesson-${l.id}`, title: l.title, targetDays: 7, targetSavings: 25, active: true };
-                  setChallenges(prev => [created, ...prev]);
-                }}>
-                  <Text style={styles.startBtnText}>Add Challenge</Text>
+                <TouchableOpacity
+                  style={styles.startBtn}
+                  testID={`open-learn-${l.id}`}
+                  onPress={() => router.push("/learning")}
+                >
+                  <Text style={styles.startBtnText}>Open in Learn</Text>
                 </TouchableOpacity>
               </View>
             ))
           )}
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your Challenges</Text>
-            <TouchableOpacity onPress={suggestAIChallenges} disabled={aiSuggesting} testID="ai-suggest-challenges" style={[styles.ctaButton, aiSuggesting && styles.ctaButtonDisabled]}>
-              <Sparkles color="#FFFFFF" size={16} />
-              <Text style={styles.ctaText}>{aiSuggesting ? "Suggesting..." : "AI Suggest"}</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.challengeForm}>
-            <TextInput
-              testID="challenge-title-input"
-              placeholder="Challenge title"
-              placeholderTextColor={Colors.gray500}
-              value={newChallengeTitle}
-              onChangeText={setNewChallengeTitle}
-              style={styles.input}
-            />
-            <View style={styles.row}>
-              <View style={styles.inputCol}>
-                <Text style={styles.inputLabel}>Days</Text>
-                <TextInput
-                  keyboardType="number-pad"
-                  value={newChallengeDays}
-                  onChangeText={setNewChallengeDays}
-                  style={styles.input}
-                />
-              </View>
-              <View style={styles.inputCol}>
-                <Text style={styles.inputLabel}>Target $</Text>
-                <TextInput
-                  keyboardType="number-pad"
-                  value={newChallengeSavings}
-                  onChangeText={setNewChallengeSavings}
-                  style={styles.input}
-                />
-              </View>
-            </View>
-            <TouchableOpacity testID="add-challenge" onPress={addCustomChallenge} style={[styles.ctaButton, { alignSelf: "stretch" }]}>
-              <Text style={styles.ctaText}>Add Challenge</Text>
-            </TouchableOpacity>
-          </View>
-
-          {challenges.length === 0 ? (
-            <Text style={styles.muted}>No challenges yet. Create one or ask AI.</Text>
-          ) : (
-            challenges.map((c) => (
-              <View key={c.id} style={styles.challengeCard}>
-                <Text style={styles.challengeTitle}>{c.title}</Text>
-                <Text style={styles.challengeMeta}>{c.targetDays} days • Save ${c.targetSavings}</Text>
-              </View>
-            ))
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>AI Advisor</Text>
-            <MessageSquare color={Colors.primary} size={18} />
-          </View>
-          <View style={styles.chatBox}>
-            {advisor.messages.map((m) => (
-              <View key={m.id} style={styles.chatMessage} testID={`msg-${m.id}`}>
-                <Text style={styles.chatRole}>{m.role}</Text>
-                {m.parts.map((part, i) => {
-                  if (part.type === "text") {
-                    return <Text key={`${m.id}-${i}`} style={styles.chatText}>{part.text}</Text>;
-                  }
-                  if (part.type === "tool") {
-                    const state = part.state;
-                    if (state === "input-streaming" || state === "input-available") {
-                      return <Text key={`${m.id}-${i}`} style={styles.chatTool}>Calling {part.toolName}...</Text>;
-                    }
-                    if (state === "output-available") {
-                      return <Text key={`${m.id}-${i}`} style={styles.chatTool}>Done: {JSON.stringify(part.output)}</Text>;
-                    }
-                    if (state === "output-error") {
-                      return <Text key={`${m.id}-${i}`} style={styles.chatError}>Error: {part.errorText}</Text>;
-                    }
-                  }
-                  return null;
-                })}
-              </View>
-            ))}
-            {advisor.error ? <Text style={styles.chatError}>Error: {String(advisor.error)}</Text> : null}
-          </View>
-          <View style={styles.chatInputRow}>
-            <TextInput
-              testID="advisor-input"
-              placeholder="Ask the AI to review your spending or create a challenge..."
-              placeholderTextColor={Colors.gray500}
-              value={advisorInput}
-              onChangeText={setAdvisorInput}
-              style={[styles.input, styles.chatInput]}
-            />
-            <TouchableOpacity
-              testID="advisor-send"
-              style={styles.sendButton}
-              onPress={() => {
-                const msg = advisorInput.trim();
-                if (!msg) return;
-                setAdvisorInput("");
-                advisor.sendMessage(`Context: income ${monthlyIncome}, expenses ${monthlyExpenses}. Recent: ${transactions.slice(0,10).map(t=>`${t.type} $${t.amount} ${t.category}`).join("; ")}.\n\nUser: ${msg}`);
-              }}
-            >
-              <Send color="#FFFFFF" size={16} />
-            </TouchableOpacity>
-          </View>
         </View>
       </ScrollView>
     </View>
@@ -639,93 +448,5 @@ const styles = StyleSheet.create({
   startBtnText: {
     color: Colors.primary,
     fontWeight: "700",
-  },
-  challengeForm: {
-    backgroundColor: Colors.white,
-    padding: 14,
-    borderRadius: 12,
-    gap: 10,
-  },
-  input: {
-    backgroundColor: Colors.gray100,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    color: Colors.ink,
-  },
-  row: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  inputCol: {
-    flex: 1,
-  },
-  inputLabel: {
-    color: Colors.gray500,
-    fontSize: 12,
-    marginBottom: 6,
-  },
-  challengeCard: {
-    backgroundColor: Colors.white,
-    padding: 14,
-    borderRadius: 12,
-    marginTop: 8,
-  },
-  challengeTitle: {
-    color: Colors.ink,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  challengeMeta: {
-    color: Colors.gray500,
-  },
-  chatBox: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    padding: 12,
-    maxHeight: 260,
-    gap: 8,
-  },
-  chatMessage: {
-    backgroundColor: Colors.gray100,
-    borderRadius: 8,
-    padding: 8,
-  },
-  chatRole: {
-    fontSize: 11,
-    color: Colors.gray500,
-    marginBottom: 4,
-    fontWeight: "700",
-  },
-  chatText: {
-    color: Colors.ink,
-    fontSize: 13,
-  },
-  chatTool: {
-    color: Colors.primary,
-    fontSize: 12,
-    marginTop: 4,
-  },
-  chatError: {
-    color: "#EF4444",
-    fontSize: 12,
-    marginTop: 4,
-  },
-  chatInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 10,
-  },
-  chatInput: {
-    flex: 1,
-  },
-  sendButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });
