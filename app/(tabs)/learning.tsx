@@ -32,6 +32,7 @@ import { Colors } from "@/constants/colors";
 import { useAuth } from "@/providers/AuthProvider";
 import { z } from "zod";
 import { useRouter } from "expo-router";
+import { apiFetch } from "@/lib/api";
 
 interface Lesson {
   id: string;
@@ -325,7 +326,7 @@ export default function LearningScreen() {
         },
       ];
 
-      const response = await fetch("/api/openai/chat", {
+      const response = await apiFetch("/api/openai/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -371,7 +372,7 @@ export default function LearningScreen() {
         { role: "user", content: `Create short financial lessons tailored to my spending. Input: ${JSON.stringify({ monthlyExpenses, topCategory: top?.[0] ?? "unknown", topAmount: top?.[1] ?? 0, byCategory })}` },
       ] as const;
 
-      const response = await fetch("/api/openai/chat", {
+      const response = await apiFetch("/api/openai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: userPrompt, model: "gpt-4o-mini", response_format: "json_object" }),
