@@ -31,6 +31,7 @@ interface User {
   photoURL?: string;
   provider: 'email' | 'google' | 'apple';
   createdAt: Date;
+  isPremium: boolean;
 }
 
 // Google OAuth configuration
@@ -81,6 +82,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           setUser({
             ...parsedUser,
             createdAt: new Date(parsedUser.createdAt),
+            isPremium: Boolean(parsedUser.isPremium),
           });
         } catch (parseError) {
           console.error('[AuthProvider] JSON parse error:', parseError);
@@ -117,6 +119,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         displayName: email.split("@")[0],
         provider: 'email',
         createdAt: new Date(),
+        isPremium: false,
       };
 
       const userJson = JSON.stringify(mockUser);
@@ -146,6 +149,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         displayName,
         provider: 'email',
         createdAt: new Date(),
+        isPremium: false,
       };
 
       const userJson = JSON.stringify(mockUser);
@@ -173,6 +177,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         photoURL: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face",
         provider: 'google',
         createdAt: new Date(),
+        isPremium: false,
       };
 
       const userJson = JSON.stringify(mockGoogleUser);
@@ -239,6 +244,19 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     }
   }, [storage]);
 
+  const purchasePremium = useCallback(async () => {
+    try {
+      if (!user) throw new Error('Not authenticated');
+      const upgraded = { ...user, isPremium: true } as User;
+      await storage.setItem("user", JSON.stringify(upgraded));
+      setUser(upgraded);
+      console.log('[AuthProvider] Premium purchased');
+    } catch (e) {
+      console.error('[AuthProvider] purchasePremium error:', e);
+      throw new Error('Failed to activate Premium');
+    }
+  }, [user, storage]);
+
   const signOut = useCallback(async () => {
     try {
       await storage.removeItem("user");
@@ -249,7 +267,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   }, [storage]);
 
   return useMemo(
-    () => ({ user, isLoading, signIn, signUp, signInWithGoogle, signOut, storage }),
-    [user, isLoading, signIn, signUp, signInWithGoogle, signOut, storage]
+    () => ({ user, isLoading, signIn, signUp, signInWithGoogle, signOut, purchasePremium, storage }),
+    [user, isLoading, signIn, signUp, signInWithGoogle, signOut, purchasePremium, storage]
   );
 });

@@ -2,8 +2,12 @@ import { Tabs } from "expo-router";
 import { Home, PlusCircle, BarChart3, Brain, Crown } from "lucide-react-native";
 import React from "react";
 import { Colors } from "@/constants/colors";
+import { useAuth } from "@/providers/AuthProvider";
 
 export default function TabLayout() {
+  const { user } = useAuth();
+  const isPremium = Boolean(user?.isPremium);
+
   return (
     <Tabs
       screenOptions={{
@@ -53,6 +57,7 @@ export default function TabLayout() {
         name="premium"
         options={{
           title: "Premium",
+          href: isPremium ? undefined : null,
           tabBarIcon: ({ color, size }) => <Crown color={color} size={size} />,
         }}
       />

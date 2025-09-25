@@ -1,10 +1,13 @@
 import React, { useMemo, useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Colors } from "@/constants/colors";
 import { useFinance } from "@/providers/FinanceProvider";
-import { Crown, Sparkles, BarChart3, BrainCircuit, Trophy, Lightbulb } from "lucide-react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Crown, Sparkles, BarChart3, BrainCircuit, Trophy, Lightbulb, ShieldCheck, Lock } from "lucide-react-native";
+
+import { useAuth } from "@/providers/AuthProvider";
+import Svg, { Path } from "react-native-svg";
+import { generateText } from "@rork/toolkit-sdk";
 
 interface Insight {
   id: string;
@@ -20,17 +23,68 @@ interface LessonSuggestion {
   challenge: string;
 }
 
+interface UserChallenge {
+  id: string;
+  title: string;
+  targetDays: number;
+  targetSavings: number;
+  active: boolean;
+}
+
+function Sparkline({ data, width, height, stroke }: { data: number[]; width: number; height: number; stroke: string }) {
+  const max = Math.max(1, ...data);
+  const min = Math.min(0, ...data);
+  const range = Math.max(1, max - min);
+  const step = data.length > 1 ? width / (data.length - 1) : width;
+  let d = "";
+  data.forEach((v, i) => {
+    const x = i * step;
+    const y = height - ((v - min) / range) * height;
+    d += i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
+  });
+  return (
+    <Svg width={width} height={height}>
+      <Path d={d} stroke={stroke} strokeWidth={2} fill="none" />
+    </Svg>
+  );
+}
+
+function KPIBar({ label, value, maxValue }: { label: string; value: number; maxValue: number }) {
+  const pct = Math.min(100, Math.round((value / Math.max(1, maxValue)) * 100));
+  return (
+    <View style={styles.kpiCard}>
+      <BarChart3 color={Colors.primary} size={20} />
+      <Text style={styles.kpiLabel}>{label}</Text>
+      <Text style={styles.kpiValue}>{pct}%</Text>
+      <View style={styles.kpiBarBg}>
+        <View style={[styles.kpiBarFill, { width: `${pct}%` }]} />
+      </View>
+    </View>
+  );
+}
+
 export default function PremiumScreen() {
   const { transactions, monthlyIncome, monthlyExpenses } = useFinance();
+  const { user, purchasePremium } = useAuth();
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [lessons, setLessons] = useState<LessonSuggestion[]>([]);
+  const [challenges, setChallenges] = useState<UserChallenge[]>([]);
+  const [newChallengeTitle, setNewChallengeTitle] = useState<string>("");
+  const [newChallengeDays, setNewChallengeDays] = useState<string>("7");
+  const [newChallengeSavings, setNewChallengeSavings] = useState<string>("50");
+  const [aiSuggesting, setAiSuggesting] = useState<boolean>(false);
 
-  const expenseRate = useMemo(() => {
-    const totalIncome = monthlyIncome || 0;
-    const totalExpense = monthlyExpenses || 0;
-    return totalIncome > 0 ? Math.min(1, totalExpense / totalIncome) : 0;
-  }, [monthlyIncome, monthlyExpenses]);
+
+
+  const expenseSeries = useMemo(() => {
+    const sorted = [...transactions]
+      .filter(t => t.type === "expense")
+      .sort((a, b) => b.date.getTime() - a.date.getTime())
+      .slice(0, 14)
+      .reverse();
+    return sorted.map(t => t.amount);
+  }, [transactions]);
 
   const simpleTrends = useMemo(() => {
     const last5 = transactions.slice(0, 5);
@@ -47,58 +101,27 @@ export default function PremiumScreen() {
   const generateAI = useCallback(async () => {
     try {
       setIsGenerating(true);
-      console.log("[Premium] Generating AI insights with transaction snapshot", {
-        count: transactions.length,
-        monthlyIncome,
-        monthlyExpenses,
-      });
-
-      const payload = {
+      const text = await generateText({
         messages: [
-          {
-            role: "system",
-            content:
-              "You are a helpful finance coach. Analyze spending patterns from JSON and reply with a concise plan: 3 insights and 3 mini-lessons with short challenges. Keep it actionable and friendly.",
-          },
+          { role: "assistant", content: "You are a helpful finance coach." },
           {
             role: "user",
-            content: [
-              { type: "text", text: `Here is my snapshot: ${JSON.stringify({
-                monthlyIncome,
-                monthlyExpenses,
-                last10: transactions.slice(0, 10).map(t => ({
-                  type: t.type,
-                  amount: t.amount,
-                  category: t.category,
-                  date: t.date.toISOString(),
-                }))
-              })}` },
-            ],
+            content: `Analyze my spending and give: 3 insights and 3 mini-lessons with short challenges. Snapshot: ${JSON.stringify({
+              monthlyIncome,
+              monthlyExpenses,
+              last10: transactions.slice(0, 10).map(t => ({ type: t.type, amount: t.amount, category: t.category, date: t.date.toISOString() }))
+            })}`,
           },
         ],
-      };
-
-      const res = await fetch("https://toolkit.rork.com/text/llm/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        throw new Error(`AI request failed: ${res.status}`);
-      }
-      const data = (await res.json()) as { completion: string };
-      const text = data.completion ?? "";
-      console.log("[Premium] AI raw completion:", text);
-
-      // Very light parser with validation
       const lines = text.split(/\n|\r/).map(l => l.trim()).filter(Boolean);
       const parsedInsights: Insight[] = [];
       const parsedLessons: LessonSuggestion[] = [];
 
       lines.forEach((raw, idx) => {
-        if (!raw || raw.trim().length === 0) return;
-        const line = raw.trim().slice(0, 300);
+        if (!raw) return;
+        const line = raw.slice(0, 300);
         const isLesson = /lesson|challenge/i.test(line);
         if (!isLesson && parsedInsights.length < 3) {
           parsedInsights.push({
@@ -128,16 +151,75 @@ export default function PremiumScreen() {
       setLessons(parsedLessons);
     } catch (e: any) {
       console.error("[Premium] AI generation error", e?.message);
-      setInsights([
-        { id: "e1", title: "AI unavailable", description: "Please try again later.", severity: "warning" },
-      ]);
+      Alert.alert("AI Error", "Failed to generate insights. Please try again.");
     } finally {
       setIsGenerating(false);
     }
   }, [transactions, monthlyIncome, monthlyExpenses]);
 
+  const suggestAIChallenges = useCallback(async () => {
+    try {
+      setAiSuggesting(true);
+      const text = await generateText({
+        messages: [
+          { role: "assistant", content: "You are a concise personal finance coach." },
+          { role: "user", content: `Given my recent expenses ${JSON.stringify(expenseSeries)}, suggest 3 short, trackable savings challenges with title and target days and estimated savings in dollars.` },
+        ],
+      });
+      const lines = text.split(/\n|\r/).map(l => l.trim()).filter(Boolean).slice(0, 6);
+      const parsed: UserChallenge[] = [];
+      lines.forEach((l, i) => {
+        const title = l.replace(/^[-*\d.\)\s]+/, "").slice(0, 60);
+        const daysMatch = l.match(/(\d{1,3})\s*day/i);
+        const saveMatch = l.match(/\$?\s*(\d{1,5})/);
+        const targetDays = daysMatch?.[1] ? parseInt(daysMatch[1]!, 10) : 7;
+        const targetSavings = saveMatch?.[1] ? parseInt(saveMatch[1]!, 10) : 25;
+        parsed.push({ id: `c-ai-${Date.now()}-${i}`, title, targetDays, targetSavings, active: false });
+      });
+      if (parsed.length > 0) setChallenges(prev => [...prev, ...parsed]);
+    } catch (e) {
+      Alert.alert("AI Error", "Couldn't suggest challenges right now.");
+    } finally {
+      setAiSuggesting(false);
+    }
+  }, [expenseSeries]);
+
+  const addCustomChallenge = useCallback(() => {
+    const title = newChallengeTitle.trim();
+    const daysNum = parseInt(newChallengeDays || "0", 10);
+    const savingsNum = parseInt(newChallengeSavings || "0", 10);
+    if (!title || daysNum <= 0 || savingsNum < 0) {
+      Alert.alert("Invalid", "Provide a title, days (>0), and savings amount.");
+      return;
+    }
+    const c: UserChallenge = { id: `c-${Date.now()}`, title, targetDays: daysNum, targetSavings: savingsNum, active: true };
+    setChallenges(prev => [c, ...prev]);
+    setNewChallengeTitle("");
+    setNewChallengeDays("7");
+    setNewChallengeSavings("50");
+  }, [newChallengeTitle, newChallengeDays, newChallengeSavings]);
+
+  if (!user?.isPremium) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient colors={[Colors.primary, Colors.primaryLight]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, styles.heroLockedOffset]}> 
+          <View style={styles.heroBadge}>
+            <Lock color="#FFFFFF" size={18} />
+            <Text style={styles.heroBadgeText}>Premium Locked</Text>
+          </View>
+          <Text style={styles.heroTitle}>Unlock AI insights & advanced reports</Text>
+          <Text style={styles.heroSubtitle}>Get KPI dashboards, sparklines, personalized lessons and challenges.</Text>
+          <TouchableOpacity testID="unlock-premium" accessibilityRole="button" onPress={purchasePremium} style={styles.ctaButton}>
+            <ShieldCheck color="#FFFFFF" size={18} />
+            <Text style={styles.ctaText}>Unlock Premium</Text>
+          </TouchableOpacity>
+        </LinearGradient>
+      </View>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <LinearGradient
           colors={[Colors.primary, Colors.primaryLight]}
@@ -164,15 +246,14 @@ export default function PremiumScreen() {
         </LinearGradient>
 
         <View style={styles.cardsRow}>
-          <View style={styles.kpiCard}>
-            <BarChart3 color={Colors.primary} size={20} />
-            <Text style={styles.kpiLabel}>Expense Rate</Text>
-            <Text style={[styles.kpiValue, expenseRate > 0.8 ? styles.dangerText : styles.successText]}>{Math.round(expenseRate * 100)}%</Text>
-          </View>
+          <KPIBar label="Expense Rate" value={monthlyExpenses} maxValue={Math.max(1, monthlyIncome)} />
           <View style={styles.kpiCard}>
             <Trophy color={Colors.primary} size={20} />
             <Text style={styles.kpiLabel}>Last 5 Net</Text>
             <Text style={styles.kpiValue}>{(simpleTrends.lastFiveIncomeTotal - simpleTrends.lastFiveExpenseTotal).toLocaleString()}</Text>
+            <View style={styles.sparkWrapper} testID="sparkline-wrapper">
+              <Sparkline data={expenseSeries.length ? expenseSeries : [0]} width={140} height={40} stroke={Colors.primaryLight} />
+            </View>
           </View>
         </View>
 
@@ -219,8 +300,63 @@ export default function PremiumScreen() {
             ))
           )}
         </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your Challenges</Text>
+            <TouchableOpacity onPress={suggestAIChallenges} disabled={aiSuggesting} testID="ai-suggest-challenges" style={[styles.ctaButton, aiSuggesting && styles.ctaButtonDisabled]}>
+              <Sparkles color="#FFFFFF" size={16} />
+              <Text style={styles.ctaText}>{aiSuggesting ? "Suggesting..." : "AI Suggest"}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.challengeForm}>
+            <TextInput
+              testID="challenge-title-input"
+              placeholder="Challenge title"
+              placeholderTextColor={Colors.gray500}
+              value={newChallengeTitle}
+              onChangeText={setNewChallengeTitle}
+              style={styles.input}
+            />
+            <View style={styles.row}>
+              <View style={styles.inputCol}>
+                <Text style={styles.inputLabel}>Days</Text>
+                <TextInput
+                  keyboardType="number-pad"
+                  value={newChallengeDays}
+                  onChangeText={setNewChallengeDays}
+                  style={styles.input}
+                />
+              </View>
+              <View style={styles.inputCol}>
+                <Text style={styles.inputLabel}>Target $</Text>
+                <TextInput
+                  keyboardType="number-pad"
+                  value={newChallengeSavings}
+                  onChangeText={setNewChallengeSavings}
+                  style={styles.input}
+                />
+              </View>
+            </View>
+            <TouchableOpacity testID="add-challenge" onPress={addCustomChallenge} style={[styles.ctaButton, { alignSelf: "stretch" }]}>
+              <Text style={styles.ctaText}>Add Challenge</Text>
+            </TouchableOpacity>
+          </View>
+
+          {challenges.length === 0 ? (
+            <Text style={styles.muted}>No challenges yet. Create one or ask AI.</Text>
+          ) : (
+            challenges.map((c) => (
+              <View key={c.id} style={styles.challengeCard}>
+                <Text style={styles.challengeTitle}>{c.title}</Text>
+                <Text style={styles.challengeMeta}>{c.targetDays} days • Save ${c.targetSavings}</Text>
+              </View>
+            ))
+          )}
+        </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -236,6 +372,9 @@ const styles = StyleSheet.create({
     margin: 16,
     borderRadius: 16,
     padding: 20,
+  },
+  heroLockedOffset: {
+    marginTop: 24,
   },
   heroBadge: {
     flexDirection: "row",
@@ -309,11 +448,20 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 18,
   },
-  dangerText: {
-    color: "#EF4444",
+  kpiBarBg: {
+    marginTop: 6,
+    height: 8,
+    backgroundColor: Colors.gray100,
+    borderRadius: 6,
+    overflow: "hidden",
   },
-  successText: {
-    color: "#10B981",
+  kpiBarFill: {
+    height: 8,
+    backgroundColor: Colors.primaryLight,
+    borderRadius: 6,
+  },
+  sparkWrapper: {
+    marginTop: 8,
   },
   section: {
     paddingHorizontal: 16,
@@ -402,5 +550,44 @@ const styles = StyleSheet.create({
   startBtnText: {
     color: Colors.primary,
     fontWeight: "700",
+  },
+  challengeForm: {
+    backgroundColor: Colors.white,
+    padding: 14,
+    borderRadius: 12,
+    gap: 10,
+  },
+  input: {
+    backgroundColor: Colors.gray100,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    color: Colors.ink,
+  },
+  row: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  inputCol: {
+    flex: 1,
+  },
+  inputLabel: {
+    color: Colors.gray500,
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  challengeCard: {
+    backgroundColor: Colors.white,
+    padding: 14,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  challengeTitle: {
+    color: Colors.ink,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  challengeMeta: {
+    color: Colors.gray500,
   },
 });
