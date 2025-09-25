@@ -31,7 +31,6 @@ import { useChallenges } from "@/providers/ChallengesProvider";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/providers/AuthProvider";
 import { z } from "zod";
-import { generateObject } from "@rork/toolkit-sdk";
 import { useRouter } from "expo-router";
 
 interface Lesson {
@@ -301,6 +300,7 @@ export default function LearningScreen() {
   const [aiInsight, setAiInsight] = useState<string>("");
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [expandedLessonId, setExpandedLessonId] = useState<string | null>(null);
+  const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
   const [isGeneratingLessons, setIsGeneratingLessons] = useState(false);
   const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
   const { user } = useAuth();
@@ -321,23 +321,23 @@ export default function LearningScreen() {
         },
         {
           role: "user" as const,
-          content: `My monthly expenses are $${monthlyExpenses}. My highest spending category is ${topCategory?.[0] || "unknown"} at $${topCategory?.[1] || 0}. Give me a personalized money-saving tip.`,
+          content: `My monthly expenses are ${monthlyExpenses}. My highest spending category is ${topCategory?.[0] || "unknown"} at ${topCategory?.[1] || 0}. Give me a personalized money-saving tip.`,
         },
       ];
 
-      const response = await fetch("https://toolkit.rork.com/text/llm/", {
+      const response = await fetch("/api/openai/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, model: "gpt-4o-mini" }),
       });
 
-      const data = await response.json();
-      setAiInsight((data as { completion?: string }).completion ?? "");
+      const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+      const text = data?.choices?.[0]?.message?.content ?? "";
+      setAiInsight(text);
     } catch {
       if (Platform.OS === "web") {
-        // eslint-disable-next-line no-console
         console.error("Failed to generate AI insight. Please try again.");
       } else {
         Alert.alert("Error", "Failed to generate AI insight. Please try again.");
@@ -366,28 +366,32 @@ export default function LearningScreen() {
         })).min(3).max(6),
       });
 
-      const result = await generateObject({
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Create short financial lessons tailored to my spending." },
-              { type: "text", text: JSON.stringify({ monthlyExpenses, topCategory: top?.[0] ?? "unknown", topAmount: top?.[1] ?? 0, byCategory }) },
-              { type: "text", text: "Return JSON only. Keep lessons concise and actionable." },
-            ],
-          },
-        ],
-        schema,
+      const userPrompt = [
+        { role: "system", content: "Return strict JSON with a lessons array only." },
+        { role: "user", content: `Create short financial lessons tailored to my spending. Input: ${JSON.stringify({ monthlyExpenses, topCategory: top?.[0] ?? "unknown", topAmount: top?.[1] ?? 0, byCategory })}` },
+      ] as const;
+
+      const response = await fetch("/api/openai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: userPrompt, model: "gpt-4o-mini", response_format: "json_object" }),
       });
 
-      const created = (result as { lessons: Lesson["id"] extends never ? never : Lesson[] }).lessons.map((l) => ({
-        ...l,
-        completed: false,
-      }));
+      const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+      const content = data?.choices?.[0]?.message?.content ?? "";
+      const parsed = schema.safeParse(JSON.parse(content));
+
+      if (!parsed.success) {
+        console.log("[Learning] AI JSON invalid, fallback");
+        setLessons(FALLBACK_LESSONS);
+        return;
+      }
+
+      const created = parsed.data.lessons.map((l) => ({ ...l, completed: false }));
       setLessons(created);
       console.log("[Learning] AI lessons generated", created.length);
-    } catch (e) {
-      console.error("[Learning] generateLessonsFromAI error", e);
+    } catch (_e) {
+      console.error("[Learning] generateLessonsFromAI error");
       setLessons(FALLBACK_LESSONS);
     } finally {
       setIsGeneratingLessons(false);
@@ -465,11 +469,11 @@ export default function LearningScreen() {
               ) : (
                 <TouchableOpacity
                   style={styles.startButton}
-                  onPress={() => markLessonCompleted(lesson.id)}
+                  onPress={() => setActiveLessonId(lesson.id)}
                   testID={`start-${lesson.id}`}
                 >
                   <Play color={Colors.white} size={14} />
-                  <Text style={styles.startButtonText}>{isExpanded ? "Complete" : "Start"}</Text>
+                  <Text style={styles.startButtonText}>Start</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -593,6 +597,41 @@ export default function LearningScreen() {
         {selectedTab === "challenges" && (user?.isPremium ? <ChallengesTab /> : renderLockedChallenges())}
         {selectedTab === "ai" && renderAI()}
       </ScrollView>
+
+      {activeLessonId ? (
+        <View style={styles.sheetBackdrop} testID="lesson-sheet">
+          <View style={styles.sheet}>
+            {(() => {
+              const lesson = lessons.find((l) => l.id === activeLessonId);
+              if (!lesson) return null;
+              return (
+                <View>
+                  <View style={styles.sheetHeader}>
+                    <Text style={styles.sheetTitle}>{lesson.title}</Text>
+                    <TouchableOpacity onPress={() => setActiveLessonId(null)} testID="close-lesson">
+                      <Text style={styles.sheetClose}>Close</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.lessonDescription}>{lesson.description}</Text>
+                  <Text style={styles.lessonContent}>{lesson.content}</Text>
+                  <View style={styles.lessonFooter}>
+                    <View style={styles.lessonMeta}>
+                      <Clock color={Colors.gray500} size={14} />
+                      <Text style={styles.lessonMetaText}>{lesson.durationMinutes} min</Text>
+                      <Award color="#F59E0B" size={14} />
+                      <Text style={styles.lessonMetaText}>{lesson.points} pts</Text>
+                    </View>
+                    <TouchableOpacity style={styles.startButton} onPress={() => { markLessonCompleted(lesson.id); setActiveLessonId(null); }} testID="complete-lesson">
+                      <CheckCircle color={Colors.white} size={14} />
+                      <Text style={styles.startButtonText}>Mark Complete</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })()}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1124,5 +1163,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.ink,
     lineHeight: 20,
+  },
+  sheetBackdrop: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Colors.ink,
+  },
+  sheetClose: {
+    color: Colors.primary,
+    fontWeight: "700",
   },
 });
