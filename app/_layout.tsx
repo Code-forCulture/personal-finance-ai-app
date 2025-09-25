@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, Component, ReactNode } from "react";
-import { StyleSheet, View, Text, TouchableOpacity } from "react-native";
+import React, { useEffect, Component, ReactNode, useState } from "react";
+import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AuthProvider } from "@/providers/AuthProvider";
 import { FinanceProvider } from "@/providers/FinanceProvider";
@@ -14,13 +14,18 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: (failureCount, error) => {
-        // Don't retry on JSON parse errors or network errors
-        if (error?.message?.includes('JSON') || error?.message?.includes('fetch')) {
+        // Don't retry on JSON parse errors, network errors, or hydration errors
+        if (error?.message?.includes('JSON') || 
+            error?.message?.includes('fetch') ||
+            error?.message?.includes('Hydration') ||
+            error?.message?.includes('timeout')) {
           return false;
         }
-        return failureCount < 3;
+        return failureCount < 2; // Reduce retry attempts
       },
       staleTime: 5 * 60 * 1000, // 5 minutes
+      gcTime: 10 * 60 * 1000, // 10 minutes
+      refetchOnWindowFocus: false, // Prevent unnecessary refetches
     },
   },
 });
@@ -77,23 +82,39 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
+  const [isReady, setIsReady] = useState(false);
+
   useEffect(() => {
-    SplashScreen.hideAsync();
+    // Add delay to prevent hydration issues and ensure providers are ready
+    const timer = setTimeout(() => {
+      setIsReady(true);
+      SplashScreen.hideAsync();
+    }, 300);
+    
+    return () => clearTimeout(timer);
   }, []);
+
+  if (!isReady) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </View>
+    );
+  }
 
   return (
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <trpc.Provider client={trpcClient} queryClient={queryClient}>
-          <GestureHandlerRootView style={styles.gestureHandler}>
+      <GestureHandlerRootView style={styles.gestureHandler}>
+        <QueryClientProvider client={queryClient}>
+          <trpc.Provider client={trpcClient} queryClient={queryClient}>
             <AuthProvider>
               <FinanceProvider>
                 <RootLayoutNav />
               </FinanceProvider>
             </AuthProvider>
-          </GestureHandlerRootView>
-        </trpc.Provider>
-      </QueryClientProvider>
+          </trpc.Provider>
+        </QueryClientProvider>
+      </GestureHandlerRootView>
     </ErrorBoundary>
   );
 }
@@ -133,5 +154,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
   },
 });

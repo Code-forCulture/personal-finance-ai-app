@@ -7,11 +7,11 @@ import { Colors } from "@/constants/colors";
 
 export default function IndexScreen() {
   const insets = useSafeAreaInsets();
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isHydrated } = useAuth();
 
   useEffect(() => {
-    console.log('[IndexScreen] Auth state changed:', { user: !!user, isLoading });
-    if (!isLoading) {
+    console.log('[IndexScreen] Auth state changed:', { user: !!user, isLoading, isHydrated });
+    if (!isLoading && isHydrated) {
       if (user) {
         console.log('[IndexScreen] User authenticated, redirecting to home');
         router.replace("/(tabs)/home");
@@ -20,16 +20,18 @@ export default function IndexScreen() {
         router.replace("/onboarding");
       }
     }
-  }, [user, isLoading]);
+  }, [user, isLoading, isHydrated]);
 
-  if (!isLoading && user) {
+  // Don't redirect until hydrated to prevent hydration mismatch
+  if (!isLoading && isHydrated && user) {
     return <Redirect href="/(tabs)/home" />;
   }
 
-  if (!isLoading && !user) {
+  if (!isLoading && isHydrated && !user) {
     return <Redirect href="/onboarding" />;
   }
 
+  // Show loading while hydrating or loading auth state
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ActivityIndicator size="large" color={Colors.primary} />

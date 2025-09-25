@@ -68,14 +68,18 @@ const mockStorage = {
 export const [AuthProvider, useAuth] = createContextHook(() => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   const storage = mockStorage;
 
   const loadUser = useCallback(async () => {
     try {
+      // Add small delay to prevent hydration mismatch
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       const userData = await storage.getItem("user");
       console.log('[AuthProvider] Loading user data:', userData);
-      if (userData) {
+      if (userData && userData.trim()) {
         try {
           const parsedUser = JSON.parse(userData);
           console.log('[AuthProvider] Parsed user:', parsedUser);
@@ -88,12 +92,17 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           console.error('[AuthProvider] JSON parse error:', parseError);
           // Clear corrupted data
           await storage.removeItem("user");
+          setUser(null);
         }
+      } else {
+        setUser(null);
       }
     } catch (error) {
       console.error('[AuthProvider] Error loading user:', error);
+      setUser(null);
     } finally {
       setIsLoading(false);
+      setIsHydrated(true);
     }
   }, [storage]);
 
@@ -267,7 +276,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   }, [storage]);
 
   return useMemo(
-    () => ({ user, isLoading, signIn, signUp, signInWithGoogle, signOut, purchasePremium, storage }),
-    [user, isLoading, signIn, signUp, signInWithGoogle, signOut, purchasePremium, storage]
+    () => ({ user, isLoading, isHydrated, signIn, signUp, signInWithGoogle, signOut, purchasePremium, storage }),
+    [user, isLoading, isHydrated, signIn, signUp, signInWithGoogle, signOut, purchasePremium, storage]
   );
 });

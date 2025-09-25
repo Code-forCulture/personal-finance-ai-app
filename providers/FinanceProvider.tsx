@@ -101,6 +101,7 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [userPoints, setUserPoints] = useState(0);
   const [hideBalance, setHideBalance] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   const storage = mockStorage;
 
@@ -123,6 +124,9 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
 
   const loadData = useCallback(async () => {
     try {
+      // Add small delay to prevent hydration mismatch
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
       console.log('[FinanceProvider] Loading finance data');
       const storedTransactions = await storage.getItem("transactions");
       const storedGoals = await storage.getItem("goals");
@@ -213,6 +217,8 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
       setGoals([]);
       setUserPoints(0);
       setHideBalance(false);
+    } finally {
+      setIsHydrated(true);
     }
   }, [storage, initializeWithMockData]);
 
@@ -302,6 +308,7 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
       monthlyExpenses,
       userPoints,
       hideBalance,
+      isHydrated,
       addTransaction,
       addGoal,
       getExpensesByCategory,
@@ -315,6 +322,7 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
       monthlyExpenses,
       userPoints,
       hideBalance,
+      isHydrated,
       addTransaction,
       addGoal,
       getExpensesByCategory,
