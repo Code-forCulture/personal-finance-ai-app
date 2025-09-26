@@ -23,7 +23,7 @@ app.get("/", (c) => {
 
 app.post("/openai/chat", async (c) => {
   try {
-    const apiKey = (process.env as Record<string, string | undefined>)["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"];
+    const apiKey = (process.env as Record<string, string | undefined>)["OPENAI_API_KEY"];
     if (!apiKey) {
       return c.json({ error: "Missing OPENAI_API_KEY on server" }, 500);
     }
@@ -41,7 +41,7 @@ app.post("/openai/chat", async (c) => {
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

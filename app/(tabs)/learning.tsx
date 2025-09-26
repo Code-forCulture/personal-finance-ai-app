@@ -8,8 +8,8 @@ import {
   Alert,
   TextInput,
   Platform,
+  StatusBar,
 } from "react-native";
-
 import { LinearGradient } from "expo-linear-gradient";
 import {
   Brain,
@@ -34,6 +34,11 @@ import { z } from "zod";
 import { useRouter } from "expo-router";
 import { apiFetch } from "@/lib/api";
 
+interface LessonStep { title: string; detail: string; timeMinutes: number; }
+interface LessonChecklistItem { id: string; text: string; done: boolean; }
+interface LessonQuiz { question: string; options: string[]; answerIndex: number; explanation: string; }
+interface LessonResource { title: string; url: string; }
+
 interface Lesson {
   id: string;
   title: string;
@@ -44,6 +49,11 @@ interface Lesson {
   completed: boolean;
   points: number;
   content: string;
+  objectives?: string[];
+  steps?: LessonStep[];
+  checklist?: LessonChecklistItem[];
+  quiz?: LessonQuiz[];
+  resources?: LessonResource[];
 }
 
 const FALLBACK_LESSONS: Lesson[] = [
@@ -51,34 +61,83 @@ const FALLBACK_LESSONS: Lesson[] = [
     id: "l1",
     title: "Smart Grocery Shopping",
     description: "Reduce food expenses without losing quality",
-    durationMinutes: 5,
+    durationMinutes: 7,
     difficulty: "Beginner",
     category: "Food & Dining",
     completed: false,
-    points: 50,
+    points: 60,
     content: "Plan meals, use a list, compare unit prices, and buy store brands.",
+    objectives: [
+      "Cut grocery costs by 10–15%",
+      "Reduce impulse buys",
+      "Optimize pantry rotation",
+    ],
+    steps: [
+      { title: "Plan 3 dinners", detail: "Pick budget-friendly recipes using overlapping ingredients.", timeMinutes: 10 },
+      { title: "Build a list", detail: "Sort by store aisle; add only what recipes need.", timeMinutes: 5 },
+      { title: "Compare unit prices", detail: "Check per-oz labels; pick store brands when equal.", timeMinutes: 5 },
+    ],
+    checklist: [
+      { id: "c1", text: "Inventory pantry & fridge", done: false },
+      { id: "c2", text: "Create recipe-led list", done: false },
+      { id: "c3", text: "Avoid snack aisle detours", done: false },
+    ],
+    quiz: [
+      { question: "What matters most for savings?", options: ["Brand name", "Unit price", "Package color", "Shelf height"], answerIndex: 1, explanation: "Unit price normalizes quantity across sizes and brands." }
+    ],
+    resources: [
+      { title: "USDA Food Planning Budget", url: "https://www.fns.usda.gov/cnpp/usda-food-plans" },
+    ],
   },
   {
     id: "l2",
     title: "Emergency Fund 101",
     description: "Create a 3–6 month safety net",
-    durationMinutes: 8,
+    durationMinutes: 10,
     difficulty: "Intermediate",
     category: "Savings",
     completed: false,
-    points: 80,
+    points: 90,
     content: "Automate a weekly transfer. Park funds in a high-yield savings account.",
+    objectives: ["Calculate target fund", "Automate contributions", "Choose HYSA"],
+    steps: [
+      { title: "Find your target", detail: "Monthly essentials × 3–6.", timeMinutes: 5 },
+      { title: "Open HYSA", detail: "Prefer FDIC/NCUA and no monthly fees.", timeMinutes: 10 },
+      { title: "Automate", detail: "Weekly transfer on payday.", timeMinutes: 3 },
+    ],
+    checklist: [
+      { id: "c4", text: "List essential expenses", done: false },
+      { id: "c5", text: "Pick HYSA provider", done: false },
+    ],
+    quiz: [
+      { question: "Where should EF live?", options: ["Checking", "HYSA", "Brokerage", "Crypto"], answerIndex: 1, explanation: "HYSA keeps liquidity and fair yield." }
+    ],
+    resources: [
+      { title: "What is HYSA?", url: "https://www.investopedia.com/terms/h/high-yield-savings-account.asp" },
+    ],
   },
   {
     id: "l3",
     title: "Investment Basics",
     description: "Stocks, bonds, and diversification",
-    durationMinutes: 12,
+    durationMinutes: 14,
     difficulty: "Advanced",
     category: "Investing",
     completed: false,
-    points: 120,
+    points: 140,
     content: "Start with low-cost index funds, rebalance yearly, and avoid timing the market.",
+    objectives: ["Understand risk/return", "Use index funds", "Avoid concentration"],
+    steps: [
+      { title: "Define risk profile", detail: "Horizon, volatility tolerance.", timeMinutes: 6 },
+      { title: "Pick core index funds", detail: "Domestic + international + bonds.", timeMinutes: 6 },
+    ],
+    checklist: [
+      { id: "c6", text: "Enable auto-invest", done: false },
+      { id: "c7", text: "Set rebalance reminder", done: false },
+    ],
+    resources: [
+      { title: "Bogleheads Philosophy", url: "https://www.bogleheads.org/wiki/Bogleheads_investing_philosophy" },
+    ],
   },
 ];
 
@@ -302,8 +361,11 @@ export default function LearningScreen() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [expandedLessonId, setExpandedLessonId] = useState<string | null>(null);
   const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
-  const [isGeneratingLessons, setIsGeneratingLessons] = useState(false);
-  const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
+  const [isGeneratingLessons, setIsGeneratingLessons] = useState<boolean>(false);
+  const [isGeneratingInsight, setIsGeneratingInsight] = useState<boolean>(false);
+  const [sheetTab, setSheetTab] = useState<"Overview" | "Steps" | "Checklist" | "Quiz" | "Resources">("Overview");
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, number | null>>({});
+  const [checkStates, setCheckStates] = useState<Record<string, boolean>>({});
   const { user } = useAuth();
   const router = useRouter();
 
@@ -355,22 +417,64 @@ export default function LearningScreen() {
       const top = Object.entries(byCategory).sort((a, b) => b[1] - a[1])[0];
 
       const schema = z.object({
-        lessons: z.array(z.object({
-          id: z.string(),
-          title: z.string(),
-          description: z.string(),
-          content: z.string(),
-          durationMinutes: z.number().min(3).max(20),
-          difficulty: z.enum(["Beginner", "Intermediate", "Advanced"]),
-          category: z.string(),
-          points: z.number().min(20).max(200),
-        })).min(3).max(6),
+        lessons: z
+          .array(
+            z.object({
+              id: z.string(),
+              title: z.string(),
+              description: z.string(),
+              content: z.string(),
+              durationMinutes: z.number().min(3).max(30),
+              difficulty: z.enum(["Beginner", "Intermediate", "Advanced"]),
+              category: z.string(),
+              points: z.number().min(20).max(300),
+              objectives: z.array(z.string()).optional(),
+              steps: z
+                .array(
+                  z.object({
+                    title: z.string(),
+                    detail: z.string(),
+                    timeMinutes: z.number().min(1).max(30),
+                  })
+                )
+                .optional(),
+              checklist: z
+                .array(
+                  z.object({
+                    id: z.string(),
+                    text: z.string(),
+                    done: z.boolean().optional(),
+                  })
+                )
+                .optional(),
+              quiz: z
+                .array(
+                  z.object({
+                    question: z.string(),
+                    options: z.array(z.string()).min(2),
+                    answerIndex: z.number().int().nonnegative(),
+                    explanation: z.string(),
+                  })
+                )
+                .optional(),
+              resources: z
+                .array(
+                  z.object({
+                    title: z.string(),
+                    url: z.string(),
+                  })
+                )
+                .optional(),
+            })
+          )
+          .min(3)
+          .max(6),
       });
 
       const userPrompt = [
-        { role: "system", content: "Return strict JSON with a lessons array only." },
-        { role: "user", content: `Create short financial lessons tailored to my spending. Input: ${JSON.stringify({ monthlyExpenses, topCategory: top?.[0] ?? "unknown", topAmount: top?.[1] ?? 0, byCategory })}` },
-      ] as const;
+        { role: "system" as const, content: "Return strict JSON with a lessons array only. Lessons must be actionable and personalized. Include objectives, steps with timeMinutes, checklist, a short quiz, and resources when relevant." },
+        { role: "user" as const, content: `Create financial lessons tailored to my spending. Input: ${JSON.stringify({ monthlyExpenses, topCategory: top?.[0] ?? "unknown", topAmount: top?.[1] ?? 0, byCategory })}` },
+      ];
 
       const response = await apiFetch("/api/openai/chat", {
         method: "POST",
@@ -388,7 +492,20 @@ export default function LearningScreen() {
         return;
       }
 
-      const created = parsed.data.lessons.map((l) => ({ ...l, completed: false }));
+      const created: Lesson[] = parsed.data.lessons.map((l, li) => ({
+        ...l,
+        completed: false,
+        objectives: l.objectives ?? [],
+        steps: l.steps ?? [],
+        checklist: (l.checklist ?? []).map((item, idx) => ({
+          id: item.id ?? `${l.id}-chk-${idx}`,
+          text: item.text,
+          done: item.done ?? false,
+        })),
+        quiz: l.quiz ?? [],
+        resources: l.resources ?? [],
+        id: l.id || `lesson-${li}`,
+      }));
       setLessons(created);
       console.log("[Learning] AI lessons generated", created.length);
     } catch (_e) {
@@ -451,7 +568,17 @@ export default function LearningScreen() {
             <Text style={styles.lessonDescription}>{lesson.description}</Text>
 
             {isExpanded ? (
-              <Text style={styles.lessonContent}>{lesson.content}</Text>
+              <View>
+                {Array.isArray(lesson.objectives) && lesson.objectives?.length ? (
+                  <View style={styles.mb8}>
+                    <Text style={styles.sectionLabel}>Objectives</Text>
+                    {lesson.objectives.map((o, idx) => (
+                      <Text key={`${lesson.id}-obj-${idx}`} style={styles.objectiveText}>• {o}</Text>
+                    ))}
+                  </View>
+                ) : null}
+                <Text style={styles.lessonContent}>{lesson.content}</Text>
+              </View>
             ) : null}
 
             <View style={styles.lessonFooter}>
@@ -470,7 +597,10 @@ export default function LearningScreen() {
               ) : (
                 <TouchableOpacity
                   style={styles.startButton}
-                  onPress={() => setActiveLessonId(lesson.id)}
+                  onPress={() => {
+                    setActiveLessonId(lesson.id);
+                    setSheetTab("Overview");
+                  }}
                   testID={`start-${lesson.id}`}
                 >
                   <Play color={Colors.white} size={14} />
@@ -605,6 +735,9 @@ export default function LearningScreen() {
             {(() => {
               const lesson = lessons.find((l) => l.id === activeLessonId);
               if (!lesson) return null;
+
+              const quizKeyBase = `quiz-${lesson.id}` as const;
+
               return (
                 <View>
                   <View style={styles.sheetHeader}>
@@ -613,16 +746,153 @@ export default function LearningScreen() {
                       <Text style={styles.sheetClose}>Close</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.lessonDescription}>{lesson.description}</Text>
-                  <Text style={styles.lessonContent}>{lesson.content}</Text>
-                  <View style={styles.lessonFooter}>
+
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sheetTabsBar} contentContainerStyle={styles.sheetTabsBarContent}>
+                    {(["Overview", "Steps", "Checklist", "Quiz", "Resources"] as const).map((t) => (
+                      <TouchableOpacity key={t} onPress={() => setSheetTab(t)} style={[styles.tabPill, sheetTab === t && styles.tabPillActive]} testID={`sheet-tab-${t.toLowerCase()}`}>
+                        <Text style={[styles.tabPillText, sheetTab === t && styles.tabPillTextActive]}>{t}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  {sheetTab === "Overview" ? (
+                    <View>
+                      <Text style={styles.lessonDescription}>{lesson.description}</Text>
+                      {Array.isArray(lesson.objectives) && lesson.objectives?.length ? (
+                        <View style={styles.mb10}>
+                          <Text style={styles.sectionLabel}>Objectives</Text>
+                          {lesson.objectives.map((o, idx) => (
+                            <Text key={`${lesson.id}-ov-obj-${idx}`} style={styles.objectiveText}>• {o}</Text>
+                          ))}
+                        </View>
+                      ) : null}
+                      <Text style={styles.lessonContent}>{lesson.content}</Text>
+                    </View>
+                  ) : null}
+
+                  {sheetTab === "Steps" ? (
+                    <View>
+                      {Array.isArray(lesson.steps) && lesson.steps?.length ? (
+                        <View style={styles.gap8}>
+                          {lesson.steps.map((s, idx) => (
+                            <View key={`${lesson.id}-step-${idx}`} style={styles.stepCard}>
+                              <View style={styles.rowBetweenMb6}>
+                                <Text style={styles.stepTitle}>{idx + 1}. {s.title}</Text>
+                                <View style={styles.rowCenterGap6}>
+                                  <Clock color={Colors.gray500} size={12} />
+                                  <Text style={styles.stepTime}>{s.timeMinutes} min</Text>
+                                </View>
+                              </View>
+                              <Text style={styles.stepDetail}>{s.detail}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : (
+                        <Text style={styles.muted}>No steps for this lesson.</Text>
+                      )}
+                    </View>
+                  ) : null}
+
+                  {sheetTab === "Checklist" ? (
+                    <View>
+                      {Array.isArray(lesson.checklist) && lesson.checklist?.length ? (
+                        <View style={styles.gap8}>
+                          {lesson.checklist.map((c) => {
+                            const current = checkStates[c.id] ?? c.done ?? false;
+                            return (
+                              <TouchableOpacity
+                                key={c.id}
+                                style={[styles.checkItem, current && styles.checkItemDone]}
+                                onPress={() => setCheckStates((prev) => ({ ...prev, [c.id]: !current }))}
+                                testID={`check-${c.id}`}
+                              >
+                                <CheckCircle color={current ? "#10B981" : Colors.gray400} size={18} />
+                                <Text style={[styles.checkText, current && styles.checkTextDone]}>{c.text}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ) : (
+                        <Text style={styles.muted}>No checklist items.</Text>
+                      )}
+                    </View>
+                  ) : null}
+
+                  {sheetTab === "Quiz" ? (
+                    <View>
+                      {Array.isArray(lesson.quiz) && lesson.quiz?.length ? (
+                        <View style={styles.gap16}>
+                          {lesson.quiz.map((q, qIdx) => {
+                            const qKey = `${quizKeyBase}-${qIdx}`;
+                            const selected = quizAnswers[qKey] ?? null;
+                            return (
+                              <View key={qKey} style={styles.quizCard}>
+                                <Text style={styles.quizQuestion}>{qIdx + 1}. {q.question}</Text>
+                                <View style={styles.gap8}>
+                                  {q.options.map((opt, oIdx) => {
+                                    const active = selected === oIdx;
+                                    return (
+                                      <TouchableOpacity
+                                        key={`${qKey}-opt-${oIdx}`}
+                                        style={[styles.quizOption, active && styles.quizOptionActive]}
+                                        onPress={() => setQuizAnswers((prev) => ({ ...prev, [qKey]: oIdx }))}
+                                        testID={`${qKey}-opt-${oIdx}`}
+                                      >
+                                        <Text style={[styles.quizOptionText, active && styles.quizOptionTextActive]}>{opt}</Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                </View>
+                                {selected !== null ? (
+                                  <Text style={selected === q.answerIndex ? styles.quizCorrect : styles.quizWrong}>
+                                    {selected === q.answerIndex ? "Correct" : "Try again"}
+                                  </Text>
+                                ) : null}
+                                {selected !== null ? (
+                                  <Text style={styles.quizExplain}>{q.explanation}</Text>
+                                ) : null}
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ) : (
+                        <Text style={styles.muted}>No quiz for this lesson.</Text>
+                      )}
+                    </View>
+                  ) : null}
+
+                  {sheetTab === "Resources" ? (
+                    <View>
+                      {Array.isArray(lesson.resources) && lesson.resources?.length ? (
+                        <View style={styles.gap8}>
+                          {lesson.resources.map((r, idx) => (
+                            <View key={`${lesson.id}-res-${idx}`} style={styles.resourceItem}>
+                              <Text style={styles.resourceTitle}>{r.title}</Text>
+                              <Text style={styles.resourceLink} numberOfLines={1}>{r.url}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : (
+                        <Text style={styles.muted}>No resources attached.</Text>
+                      )}
+                    </View>
+                  ) : null}
+
+                  <View style={[styles.lessonFooter, styles.mt16]}>
                     <View style={styles.lessonMeta}>
                       <Clock color={Colors.gray500} size={14} />
                       <Text style={styles.lessonMetaText}>{lesson.durationMinutes} min</Text>
                       <Award color="#F59E0B" size={14} />
                       <Text style={styles.lessonMetaText}>{lesson.points} pts</Text>
                     </View>
-                    <TouchableOpacity style={styles.startButton} onPress={() => { markLessonCompleted(lesson.id); setActiveLessonId(null); }} testID="complete-lesson">
+                    <TouchableOpacity
+                      style={styles.startButton}
+                      onPress={() => {
+                        markLessonCompleted(lesson.id);
+                        setActiveLessonId(null);
+                      }}
+                      testID="complete-lesson"
+                    >
                       <CheckCircle color={Colors.white} size={14} />
                       <Text style={styles.startButtonText}>Mark Complete</Text>
                     </TouchableOpacity>
@@ -648,6 +918,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 16,
+    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 12,
   },
   title: {
     fontSize: 28,
@@ -755,6 +1026,18 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     marginBottom: 12,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.gray600,
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
+  objectiveText: {
+    fontSize: 13,
+    color: Colors.gray700,
+    marginBottom: 4,
   },
   lessonFooter: {
     flexDirection: "row",
@@ -1179,6 +1462,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
+    maxHeight: 520,
   },
   sheetHeader: {
     flexDirection: "row",
@@ -1186,6 +1470,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 8,
   },
+  mb8: { marginBottom: 8 },
+  mb10: { marginBottom: 10 },
+  gap8: { gap: 8 },
+  gap16: { gap: 16 },
+  rowBetweenMb6: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  rowCenterGap6: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  mt16: { marginTop: 16 },
   sheetTitle: {
     fontSize: 18,
     fontWeight: "800",
@@ -1194,5 +1493,121 @@ const styles = StyleSheet.create({
   sheetClose: {
     color: Colors.primary,
     fontWeight: "700",
+  },
+  sheetTabsBar: {
+    marginBottom: 12,
+  },
+  sheetTabsBarContent: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  tabPill: {
+    backgroundColor: Colors.gray100,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  tabPillActive: {
+    backgroundColor: Colors.primary,
+  },
+  tabPillText: {
+    color: Colors.gray700,
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  tabPillTextActive: {
+    color: Colors.white,
+  },
+  stepCard: {
+    backgroundColor: Colors.gray100,
+    borderRadius: 12,
+    padding: 12,
+  },
+  stepTitle: {
+    color: Colors.ink,
+    fontWeight: "800",
+  },
+  stepTime: {
+    color: Colors.gray600,
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  stepDetail: {
+    color: Colors.gray700,
+    fontSize: 13,
+  },
+  muted: {
+    color: Colors.gray600,
+  },
+  checkItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: Colors.gray100,
+    padding: 12,
+    borderRadius: 12,
+  },
+  checkItemDone: {
+    backgroundColor: "#ECFDF5",
+  },
+  checkText: {
+    color: Colors.ink,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  checkTextDone: {
+    color: "#065F46",
+  },
+  quizCard: {
+    backgroundColor: Colors.gray100,
+    borderRadius: 12,
+    padding: 12,
+  },
+  quizQuestion: {
+    color: Colors.ink,
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+  quizOption: {
+    backgroundColor: Colors.white,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  quizOptionActive: {
+    backgroundColor: Colors.primary,
+  },
+  quizOptionText: {
+    color: Colors.ink,
+    fontWeight: "600",
+  },
+  quizOptionTextActive: {
+    color: Colors.white,
+  },
+  quizCorrect: {
+    color: "#065F46",
+    fontWeight: "800",
+    marginTop: 8,
+  },
+  quizWrong: {
+    color: "#991B1B",
+    fontWeight: "800",
+    marginTop: 8,
+  },
+  quizExplain: {
+    color: Colors.gray700,
+    marginTop: 4,
+  },
+  resourceItem: {
+    backgroundColor: Colors.gray100,
+    padding: 12,
+    borderRadius: 12,
+  },
+  resourceTitle: {
+    color: Colors.ink,
+    fontWeight: "800",
+  },
+  resourceLink: {
+    color: Colors.primary,
   },
 });
