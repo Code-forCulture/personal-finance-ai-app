@@ -23,7 +23,7 @@ app.get("/", (c) => {
 
 app.post("/openai/chat", async (c) => {
   try {
-    const apiKey = (process.env as Record<string, string | undefined>)["OPENAI_API_KEY"];
+    const apiKey = (process.env as Record<string, string | undefined>)["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"];
     if (!apiKey) {
       return c.json({ error: "Missing OPENAI_API_KEY on server" }, 500);
     }
