@@ -482,12 +482,35 @@ export default function LearningScreen() {
         body: JSON.stringify({ messages: userPrompt, model: "gpt-4o-mini", response_format: "json_object" }),
       });
 
-      const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+      if (!response.ok) {
+        const detail = await response.text();
+        console.log("[Learning] OpenAI proxy error", detail);
+        setLessons(FALLBACK_LESSONS);
+        return;
+      }
+
+      const data = (await response.json()) as { choices?: { message?: { content?: string } }[]; error?: unknown };
       const content = data?.choices?.[0]?.message?.content ?? "";
-      const parsed = schema.safeParse(JSON.parse(content));
+
+      if (!content) {
+        console.log("[Learning] Empty AI content, using fallback");
+        setLessons(FALLBACK_LESSONS);
+        return;
+      }
+
+      let json: unknown;
+      try {
+        json = JSON.parse(content);
+      } catch (e) {
+        console.log("[Learning] Failed to parse AI JSON", e);
+        setLessons(FALLBACK_LESSONS);
+        return;
+      }
+
+      const parsed = schema.safeParse(json);
 
       if (!parsed.success) {
-        console.log("[Learning] AI JSON invalid, fallback");
+        console.log("[Learning] AI JSON invalid, fallback", parsed.error?.flatten?.());
         setLessons(FALLBACK_LESSONS);
         return;
       }
@@ -508,8 +531,8 @@ export default function LearningScreen() {
       }));
       setLessons(created);
       console.log("[Learning] AI lessons generated", created.length);
-    } catch (_e) {
-      console.error("[Learning] generateLessonsFromAI error");
+    } catch (e) {
+      console.error("[Learning] generateLessonsFromAI error", e);
       setLessons(FALLBACK_LESSONS);
     } finally {
       setIsGeneratingLessons(false);
