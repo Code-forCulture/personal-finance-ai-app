@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   TextInput,
   Alert,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { 
   TrendingUp, 
   TrendingDown,
@@ -24,7 +24,7 @@ import {
   DollarSign
 } from "lucide-react-native";
 import { useFinance } from "@/providers/FinanceProvider";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Colors } from "@/constants/colors";
 
 const EXPENSE_CATEGORIES = [
@@ -46,11 +46,33 @@ const INCOME_CATEGORIES = [
 ];
 
 export default function AddTransactionScreen() {
-  const [transactionType, setTransactionType] = useState<"expense" | "income">("expense");
-  const [amount, setAmount] = useState("");
+  const params = useLocalSearchParams<{ type?: string }>();
+  const initialType: "income" | "expense" = (params?.type === "income" || params?.type === "expense")
+    ? (params.type as "income" | "expense")
+    : "expense";
+
+  const [transactionType, setTransactionType] = useState<"expense" | "income">(initialType);
+  const [amount, setAmount] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<string>("");
-  const [notes, setNotes] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState<string>("");
+
+  const now = useMemo(() => new Date(), []);
+  const [year, setYear] = useState<number>(now.getFullYear());
+  const [month, setMonth] = useState<number>(now.getMonth() + 1);
+  const [day, setDay] = useState<number>(now.getDate());
+  const date = useMemo(() => {
+    const mm = String(month).padStart(2, "0");
+    const dd = String(day).padStart(2, "0");
+    return `${year}-${mm}-${dd}`;
+  }, [year, month, day]);
+
+  useEffect(() => {
+    if (params?.type === "income" || params?.type === "expense") {
+      setTransactionType(params.type as "income" | "expense");
+      setSelectedCategory("");
+      console.log("[AddTransaction] Type preselected from params:", params.type);
+    }
+  }, [params?.type]);
 
   const { addTransaction } = useFinance();
 
@@ -82,22 +104,23 @@ export default function AddTransactionScreen() {
         `${transactionType === "expense" ? "Expense" : "Income"} added successfully!`,
         [{ text: "OK", onPress: () => router.back() }]
       );
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to add transaction. Please try again.");
     }
   };
 
+  const insets = useSafeAreaInsets();
+
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }] }>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Add Transaction</Text>
         </View>
 
-        {/* Transaction Type Toggle */}
         <View style={styles.toggleContainer}>
           <TouchableOpacity
+            testID="toggle-expense"
             style={[
               styles.toggleButton,
               transactionType === "expense" && styles.toggleButtonActive,
@@ -122,6 +145,7 @@ export default function AddTransactionScreen() {
           </TouchableOpacity>
           
           <TouchableOpacity
+            testID="toggle-income"
             style={[
               styles.toggleButton,
               transactionType === "income" && styles.toggleButtonActive,
@@ -146,12 +170,12 @@ export default function AddTransactionScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Amount Input */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Amount</Text>
           <View style={styles.amountContainer}>
             <Text style={styles.currencySymbol}>$</Text>
             <TextInput
+              testID="amount-input"
               style={styles.amountInput}
               value={amount}
               onChangeText={setAmount}
@@ -162,7 +186,6 @@ export default function AddTransactionScreen() {
           </View>
         </View>
 
-        {/* Category Selection */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Category</Text>
           <View style={styles.categoriesGrid}>
@@ -173,6 +196,7 @@ export default function AddTransactionScreen() {
               return (
                 <TouchableOpacity
                   key={category.id}
+                  testID={`category-${category.id}`}
                   style={[
                     styles.categoryCard,
                     isSelected && { 
@@ -200,22 +224,41 @@ export default function AddTransactionScreen() {
           </View>
         </View>
 
-        {/* Date Input */}
+        {/* Date - Scrolling Pickers */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Date</Text>
-          <View style={styles.inputContainer}>
-            <Calendar color={Colors.gray500} size={20} />
-            <TextInput
-              style={styles.input}
-              value={date}
-              onChangeText={setDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor="#9CA3AF"
+          <View style={styles.datePickersRow}>
+            <DateWheel
+              testID="year-picker"
+              data={getYears(now.getFullYear())}
+              value={year}
+              onChange={setYear}
+              renderItem={(v) => <Text style={styles.wheelText}>{v}</Text>}
+              width={96}
             />
+            <DateWheel
+              testID="month-picker"
+              data={MONTHS}
+              value={month}
+              onChange={setMonth}
+              renderItem={(v) => <Text style={styles.wheelText}>{MONTH_LABELS[v - 1]}</Text>}
+              width={128}
+            />
+            <DateWheel
+              testID="day-picker"
+              data={getDaysInMonth(year, month)}
+              value={day}
+              onChange={setDay}
+              renderItem={(v) => <Text style={styles.wheelText}>{String(v).padStart(2, '0')}</Text>}
+              width={80}
+            />
+          </View>
+          <View style={styles.chosenDateRow}>
+            <Calendar color={Colors.gray500} size={16} />
+            <Text style={styles.chosenDateText}>{date}</Text>
           </View>
         </View>
 
-        {/* Notes Input */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notes (Optional)</Text>
           <TextInput
@@ -229,14 +272,13 @@ export default function AddTransactionScreen() {
           />
         </View>
 
-        {/* Submit Button */}
-        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
+        <TouchableOpacity testID="submit-transaction" style={styles.submitButton} onPress={handleSubmit}>
           <Text style={styles.submitButtonText}>
             Add {transactionType === "expense" ? "Expense" : "Income"}
           </Text>
         </TouchableOpacity>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -351,6 +393,45 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.ink,
   },
+  datePickersRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+  },
+  wheel: {
+    height: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  wheelItem: {
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wheelText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.ink,
+  },
+  chosenDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 4,
+  },
+  chosenDateText: {
+    fontSize: 14,
+    color: Colors.gray600,
+    fontWeight: '600',
+  },
   notesInput: {
     backgroundColor: Colors.white,
     borderRadius: 12,
@@ -377,3 +458,73 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
 });
+
+// Helpers and DateWheel component
+const MONTHS: number[] = Array.from({ length: 12 }, (_, i) => i + 1);
+const MONTH_LABELS: string[] = [
+  'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'
+];
+function getYears(current: number): number[] {
+  const start = current - 10;
+  const end = current + 10;
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+function getDaysInMonth(year: number, month: number): number[] {
+  const days = new Date(year, month, 0).getDate();
+  return Array.from({ length: days }, (_, i) => i + 1);
+}
+
+interface DateWheelProps<T extends number> {
+  data: T[];
+  value: T;
+  onChange: (val: T) => void;
+  renderItem: (val: T) => React.ReactNode;
+  width: number;
+  testID?: string;
+}
+
+function DateWheel<T extends number>({ data, value, onChange, renderItem, width, testID }: DateWheelProps<T>) {
+  const itemHeight = 40;
+  const svRef = useRef<ScrollView | null>(null);
+
+  const initialIndex = useMemo(() => {
+    const idx = data.findIndex((d) => d === value);
+    return idx >= 0 ? idx : 0;
+  }, [data, value]);
+
+  useEffect(() => {
+    if (svRef.current) {
+      svRef.current.scrollTo({ y: initialIndex * itemHeight, animated: false });
+    }
+  }, [initialIndex]);
+
+  const onMomentumEnd = useCallback((e: any) => {
+    const y = e?.nativeEvent?.contentOffset?.y ?? 0;
+    const idx = Math.round(y / itemHeight);
+    const bounded = Math.min(Math.max(idx, 0), data.length - 1);
+    const selected = data[bounded];
+    if (selected !== value) onChange(selected);
+    if (svRef.current) {
+      svRef.current.scrollTo({ y: bounded * itemHeight, animated: true });
+    }
+  }, [data, onChange, value]);
+
+  return (
+    <View style={[styles.wheel, { width }]} testID={testID}>
+      <ScrollView
+        ref={svRef}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={itemHeight}
+        decelerationRate={"fast"}
+        onMomentumScrollEnd={onMomentumEnd}
+        contentContainerStyle={{ paddingVertical: 50 }}
+      >
+        {data.map((d) => (
+          <View key={String(d)} style={[styles.wheelItem, { height: itemHeight }]}> 
+            {renderItem(d)}
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}

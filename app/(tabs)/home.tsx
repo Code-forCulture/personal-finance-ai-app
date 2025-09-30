@@ -178,7 +178,7 @@ export default function DashboardScreen() {
           <View style={styles.actionsContainer}>
             <TouchableOpacity 
               style={styles.actionButton}
-              onPress={() => router.push("/(tabs)/add-transaction")}
+              onPress={() => router.push({ pathname: "/(tabs)/add-transaction", params: { type: "expense" } })}
             >
               <View style={[styles.actionIcon, { backgroundColor: "#EF4444" }]}>
                 <TrendingDown color="#FFFFFF" size={20} />
@@ -188,7 +188,7 @@ export default function DashboardScreen() {
             
             <TouchableOpacity 
               style={styles.actionButton}
-              onPress={() => router.push("/(tabs)/add-transaction")}
+              onPress={() => router.push({ pathname: "/(tabs)/add-transaction", params: { type: "income" } })}
             >
               <View style={[styles.actionIcon, { backgroundColor: "#10B981" }]}>
                 <TrendingUp color="#FFFFFF" size={20} />
