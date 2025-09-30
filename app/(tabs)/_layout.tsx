@@ -53,13 +53,15 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => <Brain color={color} size={size} />,
         }}
       />
-      <Tabs.Screen
-        name="premium"
-        options={{
-          title: "Premium",
-          tabBarIcon: ({ color, size }) => <Crown color={color} size={size} />,
-        }}
-      />
+      {isPremium ? (
+        <Tabs.Screen
+          name="premium"
+          options={{
+            title: "Premium",
+            tabBarIcon: ({ color, size }) => <Crown color={color} size={size} />,
+          }}
+        />
+      ) : null}
     </Tabs>
   );
 }

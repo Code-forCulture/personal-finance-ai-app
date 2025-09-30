@@ -34,6 +34,16 @@ interface User {
   isPremium: boolean;
 }
 
+function isEmailPremium(email: string): boolean {
+  try {
+    const raw = process.env.EXPO_PUBLIC_PREMIUM_EMAILS ?? '';
+    const list = raw.split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean);
+    return list.includes(email.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 // Google OAuth configuration
 // Replace these with your actual Google OAuth client IDs from Google Cloud Console
 const GOOGLE_CLIENT_ID = Platform.select({
@@ -83,10 +93,11 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         try {
           const parsedUser = JSON.parse(userData);
           console.log('[AuthProvider] Parsed user:', parsedUser);
+          const recomputedPremium = isEmailPremium(parsedUser.email) || Boolean(parsedUser.isPremium);
           setUser({
             ...parsedUser,
             createdAt: new Date(parsedUser.createdAt),
-            isPremium: Boolean(parsedUser.isPremium),
+            isPremium: recomputedPremium,
           });
         } catch (parseError) {
           console.error('[AuthProvider] JSON parse error:', parseError);
@@ -128,7 +139,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         displayName: email.split("@")[0],
         provider: 'email',
         createdAt: new Date(),
-        isPremium: false,
+        isPremium: isEmailPremium(email),
       };
 
       const userJson = JSON.stringify(mockUser);
@@ -158,7 +169,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         displayName,
         provider: 'email',
         createdAt: new Date(),
-        isPremium: false,
+        isPremium: isEmailPremium(email),
       };
 
       const userJson = JSON.stringify(mockUser);
@@ -186,7 +197,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         photoURL: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face",
         provider: 'google',
         createdAt: new Date(),
-        isPremium: true,
+        isPremium: isEmailPremium("demo@gmail.com"),
       };
 
       const userJson = JSON.stringify(mockGoogleUser);

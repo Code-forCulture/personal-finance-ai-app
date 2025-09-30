@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import createContextHook from "@nkzw/create-context-hook";
 import { ensureSupabaseReady, fetchGoalsForCurrentDevice, fetchTransactionsForCurrentDevice, isSupabaseConfigured, upsertGoal, upsertTransaction } from "@/lib/supabase";
+import { useAuth } from "@/providers/AuthProvider";
 
 interface Transaction {
   id: string;
@@ -104,7 +105,22 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
   const [hideBalance, setHideBalance] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
 
+  const { user } = useAuth();
   const storage = mockStorage;
+
+  const clearAllFinanceData = useCallback(async () => {
+    console.log('[FinanceProvider] Clearing all finance data for authenticated user session');
+    setTransactions([]);
+    setGoals([]);
+    setUserPoints(0);
+    setHideBalance(false);
+    await Promise.all([
+      storage.setItem("transactions", JSON.stringify([])),
+      storage.setItem("goals", JSON.stringify([])),
+      storage.setItem("userPoints", "0"),
+      storage.setItem("hideBalance", JSON.stringify(false)),
+    ]);
+  }, [storage]);
 
   const initializeWithMockData = useCallback(async () => {
     console.log('[FinanceProvider] Initializing with mock data for new user');
@@ -125,7 +141,7 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
   const loadData = useCallback(async () => {
     try {
       await new Promise(resolve => setTimeout(resolve, 150));
-      console.log('[FinanceProvider] Loading finance data');
+      console.log('[FinanceProvider] Loading finance data', { isAuthenticated: !!user });
 
       const storedTransactions = await storage.getItem("transactions");
       const storedGoals = await storage.getItem("goals");
@@ -175,9 +191,15 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
 
       const isNewUser = !storedTransactions && !storedGoals && !storedPoints;
       if (isNewUser) {
-        console.log('[FinanceProvider] New user detected, initializing with mock data');
-        await initializeWithMockData();
-        return;
+        if (user) {
+          console.log('[FinanceProvider] New authenticated user detected, initializing with ZERO data');
+          await clearAllFinanceData();
+          // do not return; continue to set empty state below
+        } else {
+          console.log('[FinanceProvider] New guest detected, initializing with mock data');
+          await initializeWithMockData();
+          return;
+        }
       }
 
       if (storedTransactions && storedTransactions.trim()) {
@@ -253,11 +275,18 @@ export const [FinanceProvider, useFinance] = createContextHook(() => {
     } finally {
       setIsHydrated(true);
     }
-  }, [storage, initializeWithMockData]);
+  }, [storage, initializeWithMockData, clearAllFinanceData, user]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (user) {
+      console.log('[FinanceProvider] Auth state changed to logged-in, ensuring zeroed data');
+      void clearAllFinanceData();
+    }
+  }, [user, clearAllFinanceData]);
 
   const addTransaction = useCallback(async (transactionData: Omit<Transaction, "id" | "userId">) => {
     try {
