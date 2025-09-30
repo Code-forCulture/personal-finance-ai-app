@@ -234,7 +234,7 @@ export default function AddTransactionScreen() {
               value={year}
               onChange={setYear}
               renderItem={(v) => <Text style={styles.wheelText}>{v}</Text>}
-              width={96}
+              width={72}
             />
             <DateWheel
               testID="month-picker"
@@ -242,7 +242,7 @@ export default function AddTransactionScreen() {
               value={month}
               onChange={setMonth}
               renderItem={(v) => <Text style={styles.wheelText}>{MONTH_LABELS[v - 1]}</Text>}
-              width={128}
+              width={112}
             />
             <DateWheel
               testID="day-picker"
@@ -250,7 +250,7 @@ export default function AddTransactionScreen() {
               value={day}
               onChange={setDay}
               renderItem={(v) => <Text style={styles.wheelText}>{String(v).padStart(2, '0')}</Text>}
-              width={80}
+              width={64}
             />
           </View>
           <View style={styles.chosenDateRow}>
@@ -395,28 +395,30 @@ const styles = StyleSheet.create({
   },
   datePickersRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: Colors.white,
     borderRadius: 12,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderWidth: 2,
     borderColor: '#E5E7EB',
   },
   wheel: {
-    height: 140,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    position: 'relative',
   },
   wheelItem: {
-    height: 40,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   wheelText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: Colors.ink,
   },
@@ -457,6 +459,14 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: Colors.white,
   },
+  selectionOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 44,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+  },
 });
 
 // Helpers and DateWheel component
@@ -484,7 +494,7 @@ interface DateWheelProps<T extends number> {
 }
 
 function DateWheel<T extends number>({ data, value, onChange, renderItem, width, testID }: DateWheelProps<T>) {
-  const itemHeight = 40;
+  const itemHeight = 44;
   const svRef = useRef<ScrollView | null>(null);
 
   const initialIndex = useMemo(() => {
@@ -511,13 +521,14 @@ function DateWheel<T extends number>({ data, value, onChange, renderItem, width,
 
   return (
     <View style={[styles.wheel, { width }]} testID={testID}>
+      <View style={styles.selectionOverlay} pointerEvents="none" />
       <ScrollView
         ref={svRef}
         showsVerticalScrollIndicator={false}
         snapToInterval={itemHeight}
         decelerationRate={"fast"}
         onMomentumScrollEnd={onMomentumEnd}
-        contentContainerStyle={{ paddingVertical: 50 }}
+        contentContainerStyle={{ paddingVertical: 0 }}
       >
         {data.map((d) => (
           <View key={String(d)} style={[styles.wheelItem, { height: itemHeight }]}> 
