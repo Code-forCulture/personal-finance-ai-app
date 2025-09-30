@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -51,7 +52,8 @@ export default function DashboardScreen() {
           </View>
           <TouchableOpacity 
             style={styles.settingsButton}
-            onPress={() => router.push("/modal")}
+            testID="dashboard-settings-button"
+            onPress={() => router.push("/settings")}
           >
             <Settings color={Colors.gray500} size={24} />
           </TouchableOpacity>
