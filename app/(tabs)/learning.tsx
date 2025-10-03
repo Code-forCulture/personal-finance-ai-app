@@ -388,7 +388,7 @@ export default function LearningScreen() {
         },
       ];
 
-      const response = await apiFetch("/openai/chat", {
+      const response = await apiFetch("/api/openai/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -476,7 +476,7 @@ export default function LearningScreen() {
         { role: "user" as const, content: `Create financial lessons tailored to my spending. Input: ${JSON.stringify({ monthlyExpenses, topCategory: top?.[0] ?? "unknown", topAmount: top?.[1] ?? 0, byCategory })}` },
       ];
 
-      const response = await apiFetch("/openai/chat", {
+      const response = await apiFetch("/api/openai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: userPrompt, model: "gpt-4o-mini", response_format: "json_object" }),

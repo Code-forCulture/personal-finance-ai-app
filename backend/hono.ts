@@ -17,11 +17,11 @@ app.use(
   })
 );
 
-app.get("/", (c) => {
+app.get("/api", (c) => {
   return c.json({ status: "ok", message: "API is running" });
 });
 
-app.post("/openai/chat", async (c) => {
+app.post("/api/openai/chat", async (c) => {
   try {
     const apiKey = (process.env as Record<string, string | undefined>)["OPENAI_API_KEY"];
     if (!apiKey) {
