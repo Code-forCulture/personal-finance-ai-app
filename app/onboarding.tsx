@@ -8,9 +8,10 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
+
 import { ChevronRight, ChevronLeft } from "lucide-react-native";
 import { router } from "expo-router";
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect } from "react-native-svg";
 
 interface OnboardingSlide {
   id: number;
@@ -18,7 +19,7 @@ interface OnboardingSlide {
   subtitle: string;
   description: string;
   image: string;
-  gradient: readonly [string, string];
+  gradient: readonly [string, string, string, string];
 }
 
 const SLIDES: OnboardingSlide[] = [
@@ -28,7 +29,7 @@ const SLIDES: OnboardingSlide[] = [
     subtitle: "Smart Money Management",
     description: "Easily track your income and expenses with our intuitive interface. Get a clear picture of your financial health.",
     image: "https://r2-pub.rork.com/generated-images/1f0d6f3f-da33-47e8-8430-83dd7d160d55.png",
-    gradient: ["#2563EB", "#3B82F6"] as const,
+    gradient: ["#FF6B9D", "#C371F5", "#4FACFE", "#00F2FE"] as const,
   },
   {
     id: 2,
@@ -36,7 +37,7 @@ const SLIDES: OnboardingSlide[] = [
     subtitle: "Learn & Improve",
     description: "Get personalized financial advice and mini-lessons based on your spending patterns. Make smarter money decisions.",
     image: "https://r2-pub.rork.com/generated-images/ad515274-9f3d-4f11-92bf-4ecf00afe0d8.png",
-    gradient: ["#1F2937", "#2563EB"] as const,
+    gradient: ["#A8EDEA", "#FED6E3", "#FFD1FF", "#C1FBA4"] as const,
   },
   {
     id: 3,
@@ -44,7 +45,7 @@ const SLIDES: OnboardingSlide[] = [
     subtitle: "Gamified Experience",
     description: "Set financial goals, complete challenges, and earn rewards. Make saving money fun and engaging.",
     image: "https://r2-pub.rork.com/generated-images/47ffe1dd-3839-463f-b72a-70c20546279a.png",
-    gradient: ["#3B82F6", "#DBEAFE"] as const,
+    gradient: ["#FFA8E2", "#A8D8FF", "#FFE5A8", "#D4A8FF"] as const,
   },
 ];
 
@@ -74,12 +75,33 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient
-        colors={slide.gradient}
-        style={styles.gradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
+      <View style={styles.gradient}>
+        <Svg height="100%" width="100%" style={StyleSheet.absoluteFillObject}>
+          <Defs>
+            <SvgLinearGradient id="holographic" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor={slide.gradient[0]} stopOpacity="1" />
+              <Stop offset="33%" stopColor={slide.gradient[1]} stopOpacity="1" />
+              <Stop offset="66%" stopColor={slide.gradient[2]} stopOpacity="1" />
+              <Stop offset="100%" stopColor={slide.gradient[3]} stopOpacity="1" />
+            </SvgLinearGradient>
+          </Defs>
+          <Rect width="100%" height="100%" fill="url(#holographic)" />
+        </Svg>
+        
+        <View style={styles.stripesOverlay}>
+          {Array.from({ length: 20 }).map((_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.stripe,
+                {
+                  left: i * 60 - 200,
+                  opacity: 0.1,
+                },
+              ]}
+            />
+          ))}
+        </View>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={skip} style={styles.skipButton}>
@@ -133,7 +155,7 @@ export default function OnboardingScreen() {
             </TouchableOpacity>
           </View>
         </View>
-      </LinearGradient>
+      </View>
     </SafeAreaView>
   );
 }
@@ -144,6 +166,19 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
+    position: "relative" as const,
+  },
+  stripesOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: "hidden" as const,
+  },
+  stripe: {
+    position: "absolute" as const,
+    width: 40,
+    height: "200%" as const,
+    backgroundColor: "#FFFFFF",
+    transform: [{ rotate: "45deg" }],
+    top: -100,
   },
   header: {
     flexDirection: "row",

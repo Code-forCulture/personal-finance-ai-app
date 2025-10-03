@@ -9,7 +9,7 @@ export const Colors = {
   gray700: "#374151",
   gray400: "#9CA3AF",
   gray100: "#F3F4F6",
-  bg: "#F9FAFB",
+  bg: "#F0F7FF",
 } as const;
 
 export type AppColors = typeof Colors;
